@@ -7,7 +7,8 @@
   const app = $("#app");
   const id = location.pathname.split("/").filter(Boolean)[1] || "";
   const qs = new URLSearchParams(location.search);
-  const preview = qs.get("preview") === "1";
+  // "exemplo": prévia da aparência aberta pelo painel (Página da proposta), sem enviar nada
+  const preview = qs.get("preview") === "1" || id === "exemplo";
   const pkey = qs.get("k") || "";
 
   let P = null;
@@ -33,7 +34,7 @@
     R.setLocale("pt", "BRL");
     app.innerHTML = R.loadingHTML(t("loading_prop"));
     try {
-      P = await R.api(`public/proposal/${encodeURIComponent(id)}${preview ? `?preview=1&k=${encodeURIComponent(pkey)}` : id === "aberta" ? `?e=${encodeURIComponent(R.E)}` : ""}`);
+      P = await R.api(`public/proposal/${encodeURIComponent(id)}${id === "exemplo" ? `?e=${encodeURIComponent(R.E)}&k=${encodeURIComponent(pkey)}` : preview ? `?preview=1&k=${encodeURIComponent(pkey)}` : id === "aberta" ? `?e=${encodeURIComponent(R.E)}` : ""}`);
     } catch (e) {
       if (e.status === 410 && e.data) {
         R.setLocale(e.data.lang || "pt", "BRL");

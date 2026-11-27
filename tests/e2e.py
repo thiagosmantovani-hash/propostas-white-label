@@ -15,7 +15,7 @@ Contra outro endereço:
 Saída: tests/output/relatorio.md, capturas de tela e o PDF assinado de cada fluxo.
 Requer: pip install playwright && python3 -m playwright install chromium
 """
-import asyncio, json, os, re, subprocess, sys, time, traceback, urllib.request
+import asyncio, json, os, re, subprocess, sys, time, traceback, urllib.request, urllib.error
 from pathlib import Path
 from playwright.async_api import async_playwright
 
@@ -268,8 +268,7 @@ async def main():
             if local:  # no site publicado não sobrescreve os dados reais da empresa
                 for k, v in {"name": "Estúdio Exemplo", "legalName": "Estúdio Exemplo Ltda", "cnpj": "11222333000181", "email": "contato@exemplo.com", "address": "Rua Exemplo, 100, Centro, CEP 01001-000", "city": "São Paulo - SP", "representative": "Ana Exemplo da Silva", "representativeDoc": "52998224725"}.items():
                     await A.fill(f'[data-ag="{k}"]', v)
-                await A.fill("#cWa", "5511999990000"); await A.click("details.tx-group:has-text('Rodapé') summary"); await A.fill("#bTag", "Serviços sob medida")
-                await A.fill('[data-colhex="primary"]', "#0f766e"); await A.fill('[data-colhex="accent"]', "#d97706")
+                await A.fill("#cWa", "5511999990000")
                 await A.click("#bizSave"); await A.wait_for_timeout(900)
                 assert "salvos" in (await toast(A)), await toast(A)
                 png = OUT / "logo-teste.png"
@@ -278,19 +277,40 @@ async def main():
                 await must(A, ".logo-slot.claro img")
             if await A.query_selector("#cfgPad"):
                 await draw(A, "#cfgPad canvas"); await A.click("#sgSave"); await must(A, ".sig-saved img")
-            # textos da página da proposta (empresa criada pelo teste)
-            await must(A, '[data-tx="hero_blur"]')
+            await shot(A, "02a-dados-da-empresa")
+            assert await A.query_selector('a.page-cta[href="#/pagina"]'), "falta o atalho para Página da proposta"
+
+        async with Step("02b Página da proposta: modelo, cores, ajustes, textos e prévia"):
+            await A.click('.adm-top nav a[href="#/pagina"]'); await must(A, "#pageSave")
+            assert await A.query_selector('[data-tpl="saude"]') and await A.query_selector('[data-tpl="construcao"]') and await A.query_selector('[data-tpl="neutro"]'), "faltam modelos"
+            await A.click('[data-tpl="tecnologia"]')
+            assert await A.input_value('[data-colhex="primary"]') == "#5b5ff0", "o modelo não trocou as cores"
+            assert not await A.is_checked("#pgCaps"), "o modelo de tecnologia usa títulos sem maiúsculas"
+            await A.fill('[data-colhex="primary"]', "#0f766e"); await A.fill('[data-colhex="accent"]', "#d97706")
+            await A.click('.seg label:has-text("Suaves")')
             await A.fill('[data-tx="hero_label"]', "Orçamento personalizado")
             await A.fill('[data-tx="hero_blur"]', "Frase inicial do teste para o seu")
             await A.fill('[data-tx="hero_sharp"]', "projeto")
             await A.click("details.tx-group:has-text('Agradecimento') summary")
             await A.fill('[data-tx="thanks"]', "Obrigado por *confiar* no teste")
-            await A.click("#bizSave"); await A.wait_for_timeout(900)
-            await go(A, "#/empresa"); await must(A, '[data-tx="hero_blur"]')
+            await A.click("details.tx-group:has-text('Rodapé') summary"); await A.fill("#bTag", "Serviços sob medida")
+            await A.click("#pageSave"); await A.wait_for_timeout(900)
+            assert "salva" in (await toast(A)), await toast(A)
+            await go(A, "#/pagina"); await must(A, '[data-tx="hero_blur"]')
             assert await A.input_value('[data-tx="hero_blur"]') == "Frase inicial do teste para o seu"
-            await shot(A, "02a-dados-da-empresa")
+            assert await A.get_attribute('[data-tpl="tecnologia"]', "aria-pressed") == "true", "modelo escolhido não ficou salvo"
+            frame = A.frame_locator("#pgFrame")
+            await frame.locator(".hero").wait_for(timeout=15000)
+            assert "Frase inicial do teste" in await frame.locator(".hero").text_content(), "a prévia não mostra o texto salvo"
+            await A.wait_for_timeout(600)
+            await shot(A, "02b-pagina-da-proposta")
             css = urllib.request.urlopen(BASE + "/api/public/brand.css?e=" + COMPANY["id"]).read().decode()
-            if local: assert "#0f766e" in css, css
+            assert "#0f766e" in css and "--tt:none" in css and "--r-card:12px" in css, css
+            # a prévia só abre com a chave do painel
+            try:
+                urllib.request.urlopen(BASE + "/api/public/proposal/exemplo?e=" + COMPANY["id"] + "&k=errada"); raise AssertionError("prévia aberta sem chave")
+            except urllib.error.HTTPError as err:
+                assert err.code == 404, err.code
 
         async with Step("02 Configurações: modelo único de contrato e contrato próprio em arquivo"):
             await go(A, "#/config"); await must(A, "#cfgSave")
@@ -391,7 +411,7 @@ async def main():
 
         async with Step("15 Cliente do Paraguai faz o pedido em espanhol"):
             await C.goto(f"{BASE}/p/{st['p_py']}"); await must(C, "#orderForm")
-            assert "mejor elección" in (await C.text_content(".pick-head")).lower(), "proposta não saiu em espanhol"
+            assert "para ti" in (await C.text_content(".pick-head")).lower(), "proposta não saiu em espanhol"  # texto do modelo de tecnologia
             assert not await C.query_selector("#heroCta"), "botão do topo ainda aparece"
             assert not await C.is_visible(".svc-card .toggle"), "cliente ainda pode tirar serviços"
             await C.fill("#f-doc", "RUC 80012345-6"); await C.fill("#f-representative", "Juan Prueba"); await C.fill("#f-email", "juan@prueba.com.py")

@@ -13,6 +13,8 @@ export const BRAND_DEFAULTS = {
   fontTitle: "archivo",
   fontText: "alexandria",
   emailFromName: "",
+  layout: "neutro", // modelo da página da proposta (LAYOUTS)
+  style: { caps: true, corners: "redondo", hero: "escuro", hide: [] }, // ajustes finos do modelo
   logos: { escuro: null, claro: null }, // versão da imagem salva (ou null): escuro = logo para fundo escuro, claro = para fundo claro
   portfolio: [], // [{ id, name, v }]
 };
@@ -33,6 +35,35 @@ export function cleanPageTexts(v) {
     if (x) out[k] = x;
   }
   return out;
+}
+
+// Modelos de página da proposta: cada um traz cores, fontes e ajustes próprios.
+// A empresa escolhe um modelo e pode trocar qualquer item depois (Página da proposta no painel).
+export const LAYOUTS = {
+  neutro: { colors: { primary: "#3b63d9", accent: "#e07b39", dark: "#111318", light: "#f2f0ea" }, fontTitle: "archivo", fontText: "alexandria", style: { caps: true, corners: "redondo", hero: "escuro" } },
+  saude: { colors: { primary: "#1f8a8a", accent: "#3fa98c", dark: "#0f3b3c", light: "#f3f8f7" }, fontTitle: "nunito", fontText: "lato", style: { caps: false, corners: "redondo", hero: "marca" } },
+  construcao: { colors: { primary: "#e0a019", accent: "#d9561f", dark: "#1b1b1b", light: "#f2eee6" }, fontTitle: "montserrat", fontText: "roboto", style: { caps: true, corners: "reto", hero: "escuro" } },
+  tecnologia: { colors: { primary: "#5b5ff0", accent: "#14b8d4", dark: "#0b1020", light: "#eef1fb" }, fontTitle: "inter", fontText: "inter", style: { caps: false, corners: "suave", hero: "marca" } },
+};
+export const SECTIONS = ["boas-vindas", "principios", "etapas", "galeria", "agradecimento"];
+const CORNERS = { reto: ["3px", "0px"], suave: ["10px", "12px"], redondo: ["999px", "20px"] };
+export function cleanStyle(x, old) {
+  const o = { ...BRAND_DEFAULTS.style, ...(old || {}) }, v = x && typeof x === "object" ? x : {};
+  return {
+    caps: "caps" in v ? !!v.caps : o.caps !== false,
+    corners: CORNERS[v.corners] ? v.corners : CORNERS[o.corners] ? o.corners : "redondo",
+    hero: ["escuro", "marca"].includes(v.hero) ? v.hero : ["escuro", "marca"].includes(o.hero) ? o.hero : "escuro",
+    hide: (Array.isArray(v.hide) ? v.hide : Array.isArray(o.hide) ? o.hide : []).filter((k) => SECTIONS.includes(k)),
+  };
+}
+// Regras de CSS dos ajustes finos (as mesmas o painel aplica na prévia ao vivo)
+export function styleCss(st) {
+  const c = CORNERS[st.corners] || CORNERS.redondo;
+  const hide = { "boas-vindas": "#boas-vindas,a[href=\"#boas-vindas\"]", principios: ".about-side", etapas: "#etapas,a[href=\"#etapas\"]", galeria: ".brands", agradecimento: ".statement" };
+  let css = `:root{--tt:${st.caps ? "uppercase" : "none"};--r-pill:${c[0]};--r-card:${c[1]};--hero-bg:${st.hero === "marca" ? "linear-gradient(135deg,var(--primary-deep),var(--night) 75%)" : "var(--night)"}}\n`;
+  const h = (st.hide || []).map((k) => hide[k]).filter(Boolean);
+  if (h.length) css += `${h.join(",")}{display:none!important}\n`;
+  return css;
 }
 
 // Fontes disponíveis. "local" vem de /assets/fonts; "google" é carregada do Google Fonts; "system" é a do aparelho.
@@ -67,6 +98,8 @@ export function brandOf(settings) {
     logos: { ...BRAND_DEFAULTS.logos, ...(b.logos || {}) },
     portfolio: Array.isArray(b.portfolio) ? b.portfolio : [],
     principles: Array.isArray(b.principles) ? b.principles : BRAND_DEFAULTS.principles,
+    layout: LAYOUTS[b.layout] ? b.layout : "neutro",
+    style: cleanStyle(b.style),
     name: (settings && settings.agency && settings.agency.name) || "Sua empresa",
   };
 }
@@ -82,7 +115,7 @@ export function brandCss(settings) {
   const b = brandOf(settings);
   const fams = [...new Set([b.fontTitle, b.fontText])].map((k) => FONTS[k]).filter((f) => f.google);
   const imp = fams.length ? `@import url("https://fonts.googleapis.com/css2?${fams.map((f) => "family=" + f.google).join("&")}&display=swap");\n` : "";
-  return `${imp}:root{--ink:${b.colors.dark};--cream:${b.colors.light};--primary:${b.colors.primary};--accent:${b.colors.accent};--f-display:${FONTS[b.fontTitle].stack};--f-sans:${FONTS[b.fontText].stack}}\n`;
+  return `${imp}:root{--ink:${b.colors.dark};--cream:${b.colors.light};--primary:${b.colors.primary};--accent:${b.colors.accent};--f-display:${FONTS[b.fontTitle].stack};--f-sans:${FONTS[b.fontText].stack}}\n${styleCss(b.style)}`;
 }
 
 /* ---------- imagens (logos e galeria) ---------- */

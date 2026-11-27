@@ -11,7 +11,7 @@ import { waEnabled, sendWa, sendWaMany, waText, waLog } from "../lib/whatsapp.mj
 import { zipSync, strToU8 } from "fflate";
 import { demo_signature } from "../lib/brand/demo-signature.mjs";
 import { EXEMPLO_CATALOG } from "../lib/catalogo-exemplo.mjs";
-import { brand, brandOf, useBrand, brandCss, fontList, okColor, parseImage, getImage, putImage, delImage, BRAND_DEFAULTS, cleanPageTexts } from "../lib/brand.mjs";
+import { brand, brandOf, useBrand, brandCss, fontList, okColor, parseImage, getImage, putImage, delImage, BRAND_DEFAULTS, cleanPageTexts, LAYOUTS, cleanStyle } from "../lib/brand.mjs";
 import { emailEnabled, emailSender, notifyAddress, sendEmail, layout, esc, sentLog } from "../lib/email.mjs";
 import { adminConfigured, checkPassword, issueToken, session, hashPassword, verifyPassword, newPassword, pwMark } from "../lib/auth.mjs";
 import { json, fail, token, sha256, nowISO, todayBR, addDays, clean, onlyDigits, validDoc, fmtDoc, computeTotals, clientIP, money, dateLongL } from "../lib/util.mjs";
@@ -127,7 +127,7 @@ function agencyPublic(settings, lang = "pt") {
     intro: t.intro || settings.intro, nextSteps: t.nextSteps || settings.nextSteps,
     tagline: b.tagline, about: custom("about") ? b.about : "", statValue: b.statValue, statLabel: b.statLabel, principles: custom("principles") ? b.principles : null,
     logos: b.logos, portfolio: b.portfolio.map((x) => ({ id: x.id, name: x.name, v: x.v })),
-    texts: cleanPageTexts(settings.pageTexts),
+    texts: cleanPageTexts(settings.pageTexts), layout: b.layout,
   };
 }
 // proposta fora do ar: despublicada pelo painel ou vencida sem pedido
@@ -200,12 +200,12 @@ export const config = { path: "/api/*" };
 /* ---------- rotas públicas ---------- */
 // Descobre a empresa: pelo id da proposta/contrato; ou por ?e=<empresa>; ou por ?ref=<caminho da página> (brand.css)
 async function publicCompany(url, kind, id) {
-  if ((kind === "proposal" && id !== "aberta") || kind === "contract") return companyOfLink(id);
+  if ((kind === "proposal" && id !== "aberta" && id !== "exemplo") || kind === "contract") return companyOfLink(id);
   let e = url.searchParams.get("e") || "";
   const ref = url.searchParams.get("ref") || "";
   if (!e && ref) {
     const m = ref.match(/^\/(p|c)\/([\w-]+)/);
-    if (m && m[2] !== "aberta") return companyOfLink(m[2]);
+    if (m && m[2] !== "aberta" && m[2] !== "exemplo") return companyOfLink(m[2]);
     const q = ref.split("?")[1];
     if (q) e = new URLSearchParams(q).get("e") || "";
   }
@@ -242,6 +242,13 @@ async function publicRoutes(req, context, url, [kind, id, action]) {
   }
 
   if (kind === "proposal") {
+    // prévia da página com a aparência da empresa, aberta pelo painel (chave assinada)
+    if (id === "exemplo") {
+      if (m !== "GET" || url.searchParams.get("k") !== previewKey("exemplo:" + currentCompany())) return fail("Proposta não encontrada.", 404);
+      const catalog = (await getCatalog()).filter((s) => s.active !== false).map((s) => cleanService(s)).slice(0, 2);
+      const services = catalog.length ? catalog : [{ id: "exemplo", name: "Serviço de exemplo", category: "Exemplo", kind: "unico", tagline: "Cadastre os seus serviços em Serviços para vê-los aqui.", description: "", includes: [{ title: "", items: ["Item incluso 1", "Item incluso 2"] }], steps: [{ title: "Início", text: "Reunião para alinhar o que você precisa." }, { title: "Entrega", text: "Execução e entrega do combinado." }], payment: [{ id: "avista", label: "À vista", total: 1000, upfront: 1000, n: 0, schedule: "Pagamento único" }] }];
+      return json(await proposalPublic({ id: "exemplo", title: services.map((x) => x.name).join(", "), status: "enviada", services, client: { name: "Cliente Exemplo", company: "Cliente Exemplo" }, validUntil: addDays(todayBR(), settings.validityDays || 15), lang: "pt", currency: "BRL", country: "BR" }, settings));
+    }
     if (id === "aberta") {
       if (!settings.openLink) return fail("Este link não está disponível.", 404);
       const catalog = (await getCatalog()).filter((s) => s.active !== false).map((s) => cleanService(s));
@@ -723,7 +730,7 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     const pub = isAdm ? settings : { agency: settings.agency, brand: settings.brand, whatsapp: settings.whatsapp, validityDays: settings.validityDays, sellersUseAgencySignature: settings.sellersUseAgencySignature, agencySignature: settings.agencySignature ? { name: settings.agencySignature.name } : null, openLink: false };
     return json({
       role: sess.role, me: me ? userPublic(me) : null, company: isAdm ? companyPublic(company) : { id: company.id, name: company.name }, su: !!sess.su, notice: (await getSystem()).notice || "",
-      settings: pub, catalog, fonts: fontList(), emailEnabled: emailEnabled(), waEnabled: waEnabled(), emailSender: isAdm ? emailSender() : "", defaultTemplate: TEMPLATES.pt, templateVars: TEMPLATE_VARS, today: todayBR(),
+      settings: pub, catalog, fonts: fontList(), emailEnabled: emailEnabled(), waEnabled: waEnabled(), emailSender: isAdm ? emailSender() : "", exampleKey: isAdm ? previewKey("exemplo:" + company.id) : "", layouts: LAYOUTS, defaultTemplate: TEMPLATES.pt, templateVars: TEMPLATE_VARS, today: todayBR(),
       countries: COUNTRIES, currencies: CURRENCIES,
       users: isAdm ? users.map(userPublic) : [],
       folders: folders.filter((f) => isAdm || f.ownerId === me.id).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")).map((f) => ({ id: f.id, name: f.name, ownerId: f.ownerId || null, ownerName: f.ownerId ? (users.find((u) => u.id === f.ownerId) || {}).name || "" : "" })),
@@ -1237,16 +1244,20 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     const cur = (await s.get("settings")) || {};
     if (b.agency) cur.agency = Object.fromEntries(Object.keys(DEFAULT_SETTINGS.agency).map((k) => [k, clean(b.agency[k], 240)]));
     if (b.brand && typeof b.brand === "object") {
-      const x = b.brand, old = cur.brand || {};
-      const colors = {};
-      for (const k of Object.keys(BRAND_DEFAULTS.colors)) colors[k] = okColor(x.colors && x.colors[k]) ? x.colors[k].toLowerCase() : (old.colors && old.colors[k]) || BRAND_DEFAULTS.colors[k];
-      cur.brand = {
-        ...old,
-        tagline: clean(x.tagline, 160), about: clean(x.about, 1500) || BRAND_DEFAULTS.about,
-        statValue: clean(x.statValue, 12), statLabel: clean(x.statLabel, 60),
-        principles: (Array.isArray(x.principles) ? x.principles : []).map((p) => clean(p, 120)).filter(Boolean).slice(0, 6),
-        colors, fontTitle: clean(x.fontTitle, 30), fontText: clean(x.fontText, 30), emailFromName: clean(x.emailFromName, 80),
-      };
+      // cada tela envia só o que edita (Empresa: remetente; Página da proposta: modelo, cores, fontes e textos)
+      const x = b.brand, old = cur.brand || {}, nb = { ...old };
+      if (x.colors) { nb.colors = {}; for (const k of Object.keys(BRAND_DEFAULTS.colors)) nb.colors[k] = okColor(x.colors[k]) ? x.colors[k].toLowerCase() : (old.colors && old.colors[k]) || BRAND_DEFAULTS.colors[k]; }
+      if ("tagline" in x) nb.tagline = clean(x.tagline, 160);
+      if ("about" in x) nb.about = clean(x.about, 1500) || BRAND_DEFAULTS.about;
+      if ("statValue" in x) nb.statValue = clean(x.statValue, 12);
+      if ("statLabel" in x) nb.statLabel = clean(x.statLabel, 60);
+      if ("principles" in x) nb.principles = (Array.isArray(x.principles) ? x.principles : []).map((p) => clean(p, 120)).filter(Boolean).slice(0, 6);
+      if ("fontTitle" in x) nb.fontTitle = clean(x.fontTitle, 30);
+      if ("fontText" in x) nb.fontText = clean(x.fontText, 30);
+      if ("emailFromName" in x) nb.emailFromName = clean(x.emailFromName, 80);
+      if ("layout" in x) nb.layout = LAYOUTS[x.layout] ? x.layout : "neutro";
+      if ("style" in x) nb.style = cleanStyle(x.style, old.style);
+      cur.brand = nb;
     }
     if ("whatsapp" in b) cur.whatsapp = onlyDigits(b.whatsapp).slice(0, 15);
     if ("instagram" in b) cur.instagram = clean(b.instagram, 60).replace(/^@/, "");
