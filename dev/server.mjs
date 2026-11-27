@@ -12,7 +12,7 @@ const { default: api } = await import("../netlify/functions/api.mjs");
 
 const PUB = path.join(root, "..", "public");
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".json": "application/json", ".ico": "image/x-icon" };
-const REWRITES = [[/^\/$/, "/inicio.html"], [/^\/p\/.+/, "/proposta.html"], [/^\/c\/.+/, "/contrato.html"], [/^\/admin\/?$/, "/admin.html"]];
+const REWRITES = [[/^\/$/, "/inicio.html"], [/^\/p\/.+/, "/proposta.html"], [/^\/c\/.+/, "/contrato.html"], [/^\/(admin|entrar|dono)\/?$/, "/admin.html"]];
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);

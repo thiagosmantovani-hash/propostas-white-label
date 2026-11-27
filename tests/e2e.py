@@ -256,7 +256,7 @@ async def main():
                 if cat == 0:
                     await go(A, "#/servicos"); await must(A, "#catList .empty")
                     await shot(A, "01a-catalogo-vazio")
-                ex = subprocess.run(["node", "--input-type=module", "-e", "import { EXEMPLO_CATALOG } from './tests/catalogo-exemplo.mjs'; process.stdout.write(JSON.stringify(EXEMPLO_CATALOG))"], cwd=Path(__file__).parent.parent, capture_output=True, text=True, check=True).stdout
+                ex = subprocess.run(["node", "--input-type=module", "-e", "import { EXEMPLO_CATALOG } from './netlify/lib/catalogo-exemplo.mjs'; process.stdout.write(JSON.stringify(EXEMPLO_CATALOG))"], cwd=Path(__file__).parent.parent, capture_output=True, text=True, check=True).stdout
                 if cat <= 0:
                     n = await A.evaluate('''(c) => { const H = { "content-type": "application/json", authorization: "Bearer " + R.store.get("adm", "") }; return fetch("/api/admin/catalog", { method: "PUT", headers: H, body: JSON.stringify({ catalog: JSON.parse(c) }) }).then((r) => r.json()).then((d) => d.catalog.length); }''', ex)
                     assert n >= 4, n
@@ -500,18 +500,35 @@ async def main():
             assert s_ in (200, 410) and (s_ == 410 or (pb["agency"]["name"] == COMPANY["name"] and pb["agency"]["e"] == COMPANY["id"])), "link público com a marca errada"
 
         async with Step("26b Dono do sistema vê as empresas e entra no painel de uma"):
-            await A.goto(BASE + "/admin")
+            await A.goto(BASE + "/entrar")
             await A.evaluate("localStorage.clear()")
             await A.reload()
-            await must(A, '[data-mode="dono"]')
-            await A.click('[data-mode="dono"]'); await A.fill("#pw", ADMIN_PW); await A.click("button[type=submit]")
+            await must(A, "#em")
+            assert not await A.query_selector('[data-mode="dono"]'), "o login das contas não deve mostrar o acesso do dono"
+            await A.goto(BASE + "/dono")
+            await A.evaluate("localStorage.clear()")
+            await A.reload()
+            await must(A, "#pw")
+            assert not await A.query_selector("#em"), "o login do dono não pede e-mail"
+            await A.fill("#pw", ADMIN_PW); await A.click("button[type=submit]")
             await must(A, "[data-enter]")
+            await must(A, "#sSave")
             assert COMPANY["name"] in await A.text_content("main"), "empresa não aparece na lista do dono"
             await shot(A, "26b-painel-do-dono")
             await A.click(f'[data-enter="{COMPANY["id"]}"]')
             await must(A, "#suBack")
             await must(A, ".tiles")
             await A.click("#suBack"); await must(A, "[data-enter]")
+            await A.click("#demoAcc")
+            await A.wait_for_timeout(400)
+            if await A.query_selector("#mdYes"):  # já existia: confirmar recriar
+                await A.click("#mdYes")
+            await must(A, "#supOut .okbox", 30000)
+            await shot(A, "26b-conta-de-teste")
+            s_, d_ = api("admin/login", {"email": "conta.teste@example.com", "password": "teste1234"})
+            assert s_ == 200, d_
+            s_, b_ = api("admin/bootstrap", tok=d_["token"])
+            assert len(b_["proposals"]) == 5, f"conta de teste com {len(b_['proposals'])} propostas"
             await admin_login(A)
 
         async with Step("27 Modelo de teste: criar e conferir as cinco etapas"):

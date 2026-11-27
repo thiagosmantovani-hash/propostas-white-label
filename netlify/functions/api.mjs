@@ -10,6 +10,7 @@ import { contractPdf, documentPdf } from "../lib/pdf.mjs";
 import { waEnabled, sendWa, sendWaMany, waText, waLog } from "../lib/whatsapp.mjs";
 import { zipSync, strToU8 } from "fflate";
 import { demo_signature } from "../lib/brand/demo-signature.mjs";
+import { EXEMPLO_CATALOG } from "../lib/catalogo-exemplo.mjs";
 import { brand, brandOf, useBrand, brandCss, fontList, okColor, parseImage, getImage, putImage, delImage, BRAND_DEFAULTS } from "../lib/brand.mjs";
 import { emailEnabled, emailSender, notifyAddress, sendEmail, layout, esc, sentLog } from "../lib/email.mjs";
 import { adminConfigured, checkPassword, issueToken, session, hashPassword, verifyPassword, newPassword, pwMark } from "../lib/auth.mjs";
@@ -214,6 +215,7 @@ async function publicCompany(url, kind, id) {
 async function publicEntry(req, context, url, parts) {
   const [kind, id] = parts;
   if (kind === "__emails" && process.env.EMAIL_TEST === "1") return json({ sent: sentLog });
+  if (kind === "system" && req.method === "GET") { const sys = await getSystem(); return json({ productName: sys.productName, signupOpen: signupOpen(sys) }); }
   const cid = await publicCompany(url, kind, id);
   if (!cid) {
     if (kind === "proposal") return fail("Proposta não encontrada.", 404);
@@ -417,18 +419,18 @@ async function placeOrder(p, body, settings, req, context, opts = {}) {
 
 /* ---------- rotas do painel ---------- */
 const slow = () => new Promise((r) => setTimeout(r, 700)); // atrasa respostas de senha errada (dificulta tentativas em massa)
-const companyPublic = (c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, blocked: !!c.blocked, owner: { name: c.owner.name, email: c.owner.email } });
+const companyPublic = (c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, blocked: !!c.blocked, demo: !!c.demo, createdBy: c.createdBy || "cadastro", note: c.note || "", lastLoginAt: c.lastLoginAt || null, owner: { name: c.owner.name, email: c.owner.email } });
 
 async function adminEntry(req, context, url, parts) {
   const [kind] = parts;
   const m = req.method;
   if (["login", "signup", "forgot", "reset"].includes(kind) && m === "POST") {
     if (!adminConfigured()) return fail("Defina a variável ADMIN_PASSWORD no Netlify para liberar o sistema.", 503);
-    return accountRoutes(req, url, kind);
+    return accountRoutes(req, url, kind, context);
   }
   const sess = session(req);
   if (!sess) return fail("Sessão expirada. Entre de novo.", 401);
-  if (sess.role === "super") return superRoutes(req, url, parts);
+  if (sess.role === "super") return superRoutes(req, url, parts, context);
   const company = await getCompany(sess.cid);
   if (!company) return fail("Conta não encontrada. Entre de novo.", 401);
   if (company.blocked && !sess.su) return fail("O acesso desta empresa está suspenso. Fale com o suporte do sistema.", 401);
@@ -437,7 +439,7 @@ async function adminEntry(req, context, url, parts) {
 }
 
 // login, criação de conta e nova senha
-async function accountRoutes(req, url, kind) {
+async function accountRoutes(req, url, kind, context) {
   const b = await req.json().catch(() => ({}));
   const email = clean(b.email, 160).toLowerCase();
   const pw = typeof b.password === "string" ? b.password : "";
@@ -448,33 +450,36 @@ async function accountRoutes(req, url, kind) {
       if (!checkPassword(pw)) { await slow(); return fail("Senha incorreta.", 401); }
       return json({ token: issueToken({ role: "super" }), role: "super" });
     }
+    if (email === DEMO_EMAIL) await ensureDemoAccount(url, context); // a conta modelo de teste nasce no primeiro acesso
     const l = await getLogin(email);
     const c = l && (await getCompany(l.cid));
     if (!c) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
+    const seen = async () => { c.lastLoginAt = nowISO(); await saveCompany(c); };
     if (!l.uid) {
       if (!verifyPassword(pw, c.owner)) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
       if (c.blocked) return fail("O acesso desta empresa está suspenso. Fale com o suporte do sistema.", 403);
+      await seen();
       return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
     }
     const u = await withCompany(c.id, () => getUser(l.uid));
     if (!u || u.active === false || !verifyPassword(pw, u)) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
     if (c.blocked) return fail("O acesso desta empresa está suspenso. Fale com o administrador da sua empresa.", 403);
+    await seen();
     return json({ token: issueToken({ role: "seller", cid: c.id, uid: u.id, pv: pwMark(u) }), role: "seller", company: c.id });
   }
 
   if (kind === "signup") {
     if (b.website) return fail("Não foi possível criar a conta.", 400); // campo escondido: só robôs preenchem
-    if (env("SIGNUP_CLOSED") === "1") return fail("O cadastro de novas empresas está fechado no momento.", 403);
+    const sys = await getSystem();
+    if (!signupOpen(sys)) return fail("O cadastro de novas contas está fechado no momento.", 403);
     const name = clean(b.name, 120), companyName = clean(b.company, 120);
     if (name.length < 3) return fail("Informe o seu nome.");
     if (companyName.length < 2) return fail("Informe o nome da empresa (ou o seu nome, se você trabalha como freelancer).");
     if (!validEmail(email)) return fail("Informe um e-mail válido.");
     if (pw.length < 8) return fail("A senha precisa de pelo menos 8 caracteres.");
     if (await getLogin(email)) { await slow(); return fail("Já existe uma conta com esse e-mail. Use Entrar ou Esqueci minha senha."); }
-    const c = { id: token(9), name: companyName, createdAt: nowISO(), blocked: false, owner: { name, email, ...hashPassword(pw) } };
-    await saveCompany(c);
-    await setLogin(email, { cid: c.id, uid: null });
-    await withCompany(c.id, async () => (await db()).set("settings", { agency: { name: companyName, email, representative: name } }));
+    const c = await createCompany({ name, companyName, email, password: pw, by: "cadastro", sys });
+    c.lastLoginAt = nowISO(); await saveCompany(c);
     return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
   }
 
@@ -520,28 +525,152 @@ async function accountRoutes(req, url, kind) {
   return fail("Rota não encontrada.", 404);
 }
 
-// painel do dono do sistema: empresas cadastradas, bloquear/liberar, nova senha e entrar no painel de uma empresa
-async function superRoutes(req, url, [kind, id, action]) {
+// configurações do sistema todo (painel do dono): system
+const SYSTEM_DEFAULTS = { productName: "Propostas", signupOpen: true, notice: "", defaultMaxSellers: 0, defaultValidityDays: 15 };
+async function getSystem() { return { ...SYSTEM_DEFAULTS, ...((await (await rootDb()).get("system")) || {}) }; }
+const signupOpen = (sys) => sys.signupOpen !== false && env("SIGNUP_CLOSED") !== "1";
+const maxSellersOf = (c, sys) => { const n = c.maxSellers != null ? c.maxSellers : sys.defaultMaxSellers; return Number(n) > 0 ? Number(n) : 0; };
+
+// conta modelo de teste: login fixo para enviar a quem for testar; o dono pode recriar do zero no painel
+const DEMO_EMAIL = "conta.teste@example.com";
+const DEMO_PASSWORD = "teste1234";
+
+// cria uma empresa nova com o responsável, o índice de login e os dados iniciais
+async function createCompany({ name, companyName, email, password, by, sys, extra = {} }) {
+  const c = { id: token(9), name: companyName, createdAt: nowISO(), blocked: false, createdBy: by || "cadastro", owner: { name, email, ...hashPassword(password) }, ...extra };
+  await saveCompany(c);
+  await setLogin(email, { cid: c.id, uid: null });
+  await withCompany(c.id, async () => (await db()).set("settings", { agency: { name: companyName, email, representative: name }, validityDays: sys.defaultValidityDays || 15 }));
+  return c;
+}
+
+// apaga a empresa e tudo o que é dela: dados, logins (responsável e consultores) e links públicos
+async function deleteCompany(c) {
+  const root = await rootDb();
+  const pre = `e/${c.id}/`;
+  const keys = await root.list(pre);
+  for (const k of keys) {
+    const sub = k.slice(pre.length);
+    if (/^(proposals|contracts)\//.test(sub)) await root.del("links/" + sub.split("/")[1]);
+    if (/^users\//.test(sub)) { const u = await root.get(k); if (u && u.email) { const l = await getLogin(u.email); if (l && l.cid === c.id) await delLogin(u.email); } }
+    await root.del(k);
+  }
+  const l = await getLogin(c.owner.email);
+  if (l && l.cid === c.id) await delLogin(c.owner.email);
+  await root.del("companies/" + c.id);
+}
+
+// (re)cria a conta modelo de teste com dados da empresa, catálogo de exemplo e as cinco propostas do modelo de teste
+async function ensureDemoAccount(url, context, recreate = false) {
+  const l = await getLogin(DEMO_EMAIL);
+  const old = l && (await getCompany(l.cid));
+  if (old && !recreate) return old;
+  if (old) await deleteCompany(old);
+  else if (l) await delLogin(DEMO_EMAIL);
+  const sys = await getSystem();
+  const c = await createCompany({ name: "Maria Modelo", companyName: "Estúdio Modelo", email: DEMO_EMAIL, password: DEMO_PASSWORD, by: "dono", sys, extra: { demo: true, note: "Conta modelo de teste (login compartilhado com quem for testar)." } });
+  await withCompany(c.id, async () => {
+    const s = await db();
+    await s.set("settings", {
+      agency: { name: "Estúdio Modelo", legalName: "Estúdio Modelo Serviços Ltda", cnpj: "11222333000181", address: "Avenida Paulista, 1000, Bela Vista", city: "São Paulo - SP", email: DEMO_EMAIL, representative: "Maria Modelo", representativeDoc: "52998224725" },
+      whatsapp: "11999990000", site: "exemplo.com.br", validityDays: 15,
+      brand: { tagline: "Projetos sob medida para o seu negócio", colors: { primary: "#0f766e", accent: "#f59e0b", dark: "#111827", light: "#f5f3ee" } },
+      agencySignature: { name: "Maria Modelo", doc: "52998224725", image: demo_signature, custom: true },
+      sellersUseAgencySignature: true,
+    });
+    await s.set("catalog", EXEMPLO_CATALOG);
+    const r = await adminRoutes(new Request(url.origin + "/api/admin/demo", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }), context, url, ["demo"], { role: "admin" }, c);
+    if (r.status !== 200) throw new Error("conta de teste: " + (await r.text()).slice(0, 200));
+  });
+  return c;
+}
+
+// painel do dono do sistema: visão geral, configurações, contas (criar, editar, bloquear, nova senha, entrar, excluir) e conta de teste
+async function superRoutes(req, url, [kind, id, action], context) {
   const m = req.method;
   const root = await rootDb();
+  const sys = await getSystem();
+  const body = async () => (m === "GET" ? {} : await req.json().catch(() => ({})));
+
   if ((kind === "bootstrap" || kind === "companies") && m === "GET" && !id) {
     const keys = await root.list("companies/");
     const all = (await Promise.all(keys.map((k) => root.get(k)))).filter(Boolean);
     const rows = await Promise.all(all.map(async (c) => {
-      const [ps, us] = await Promise.all([root.list(`e/${c.id}/proposals/`), root.list(`e/${c.id}/users/`)]);
-      return { ...companyPublic(c), proposals: ps.length, sellers: us.length };
+      const [ps, cs, us] = await Promise.all([root.list(`e/${c.id}/proposals/`), root.list(`e/${c.id}/contracts/`), root.list(`e/${c.id}/users/`)]);
+      return { ...companyPublic(c), proposals: ps.length, contracts: cs.length, sellers: us.length, maxSellers: maxSellersOf(c, sys), maxSellersOwn: c.maxSellers != null ? c.maxSellers : null };
     }));
     rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-    return json({ role: "super", companies: rows, emailEnabled: emailEnabled(), signupClosed: env("SIGNUP_CLOSED") === "1" });
+    const week = new Date(Date.now() - 7 * 864e5).toISOString();
+    const stats = {
+      companies: rows.length, active: rows.filter((c) => !c.blocked).length, blocked: rows.filter((c) => c.blocked).length,
+      new7: rows.filter((c) => c.createdAt >= week).length, active7: rows.filter((c) => c.lastLoginAt && c.lastLoginAt >= week).length,
+      proposals: rows.reduce((a, c) => a + c.proposals, 0), contracts: rows.reduce((a, c) => a + c.contracts, 0),
+    };
+    return json({ role: "super", companies: rows, stats, system: sys, signupOpen: signupOpen(sys), signupEnvClosed: env("SIGNUP_CLOSED") === "1", emailEnabled: emailEnabled(), waEnabled: waEnabled(), demoEmail: DEMO_EMAIL, demoPassword: DEMO_PASSWORD });
   }
-  if (kind !== "companies") return fail("Disponível no painel de uma empresa. Use Entrar no painel na lista de empresas.", 403);
+
+  if (kind === "system" && m === "PUT") {
+    const b = await body();
+    const cur = (await root.get("system")) || {};
+    if ("productName" in b) cur.productName = clean(b.productName, 60) || SYSTEM_DEFAULTS.productName;
+    if ("signupOpen" in b) cur.signupOpen = !!b.signupOpen;
+    if ("notice" in b) cur.notice = clean(b.notice, 400);
+    if ("defaultMaxSellers" in b) cur.defaultMaxSellers = Math.max(0, Math.min(500, Math.round(num(b.defaultMaxSellers))));
+    if ("defaultValidityDays" in b) cur.defaultValidityDays = Math.max(1, Math.min(365, Math.round(num(b.defaultValidityDays)) || 15));
+    await root.set("system", cur);
+    return json({ system: await getSystem() });
+  }
+
+  if (kind === "demo-account" && m === "POST") {
+    const c = await ensureDemoAccount(url, context, true);
+    return json({ company: companyPublic(c), email: DEMO_EMAIL, password: DEMO_PASSWORD });
+  }
+
+  if (kind !== "companies") return fail("Disponível no painel de uma empresa. Use Entrar no painel na lista de contas.", 403);
+
+  // criar conta pelo painel do dono (a senha gerada aparece para você enviar ao responsável)
+  if (m === "POST" && !id) {
+    const b = await body();
+    const name = clean(b.name, 120), companyName = clean(b.company, 120), email = clean(b.email, 160).toLowerCase();
+    if (name.length < 3) return fail("Informe o nome do responsável.");
+    if (companyName.length < 2) return fail("Informe o nome da empresa.");
+    if (!validEmail(email)) return fail("Informe um e-mail válido.");
+    if (await getLogin(email)) return fail("Já existe uma conta (ou consultor) com esse e-mail.");
+    const pw = newPassword();
+    const c = await createCompany({ name, companyName, email, password: pw, by: "dono", sys, extra: { note: clean(b.note, 400) } });
+    return json({ company: companyPublic(c), password: pw });
+  }
+
   const c = await getCompany(id);
-  if (!c) return fail("Empresa não encontrada.", 404);
+  if (!c) return fail("Conta não encontrada.", 404);
   if (m === "PUT" && !action) {
-    const b = await req.json().catch(() => ({}));
+    const b = await body();
     if ("blocked" in b) c.blocked = !!b.blocked;
+    if ("company" in b && clean(b.company, 120).length >= 2) {
+      c.name = clean(b.company, 120);
+      await withCompany(c.id, async () => { const s = await db(); const cur = (await s.get("settings")) || {}; cur.agency = { ...(cur.agency || {}), name: c.name }; await s.set("settings", cur); });
+    }
+    if ("ownerName" in b && clean(b.ownerName, 120).length >= 3) c.owner.name = clean(b.ownerName, 120);
+    if ("ownerEmail" in b) {
+      const email = clean(b.ownerEmail, 160).toLowerCase();
+      if (email !== c.owner.email) {
+        if (!validEmail(email)) return fail("Informe um e-mail válido.");
+        if (await getLogin(email)) return fail("Esse e-mail já está em uso no sistema.");
+        await delLogin(c.owner.email);
+        await setLogin(email, { cid: c.id, uid: null });
+        c.owner.email = email;
+      }
+    }
+    if ("maxSellers" in b) c.maxSellers = b.maxSellers === null || b.maxSellers === "" ? null : Math.max(0, Math.min(500, Math.round(num(b.maxSellers))));
+    if ("note" in b) c.note = clean(b.note, 400);
     await saveCompany(c);
     return json({ company: companyPublic(c) });
+  }
+  if (m === "DELETE" && !action) {
+    const b = await body();
+    if (clean(b.confirm, 120).toLowerCase() !== String(c.name).toLowerCase()) return fail("Digite o nome da conta exatamente como aparece para confirmar a exclusão.");
+    await deleteCompany(c);
+    return json({ deleted: true });
   }
   if (m === "POST" && action === "reset") {
     const pw = newPassword();
@@ -570,6 +699,7 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     if (!isAdm) return fail("Disponível para o administrador da empresa.", 403);
     if (m === "PUT") {
       if (sess.su) return fail("Entre com o e-mail da empresa para mudar estes dados.", 403);
+      if (company.demo) return fail("Na conta modelo de teste o nome e a senha não mudam (o login é compartilhado).", 403);
       const b = await req.json().catch(() => ({}));
       if ("name" in b) { if (clean(b.name, 120).length < 3) return fail("Informe o seu nome."); company.owner.name = clean(b.name, 120); }
       let tok = null;
@@ -591,7 +721,7 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     const [proposals, contracts, catalog, users, folders] = await Promise.all([listDocs("proposals/"), listDocs("contracts/"), getCatalog(), listDocs("users/"), listDocs("folders/")]);
     const pub = isAdm ? settings : { agency: settings.agency, brand: settings.brand, whatsapp: settings.whatsapp, validityDays: settings.validityDays, sellersUseAgencySignature: settings.sellersUseAgencySignature, agencySignature: settings.agencySignature ? { name: settings.agencySignature.name } : null, openLink: false };
     return json({
-      role: sess.role, me: me ? userPublic(me) : null, company: isAdm ? companyPublic(company) : { id: company.id, name: company.name }, su: !!sess.su,
+      role: sess.role, me: me ? userPublic(me) : null, company: isAdm ? companyPublic(company) : { id: company.id, name: company.name }, su: !!sess.su, notice: (await getSystem()).notice || "",
       settings: pub, catalog, fonts: fontList(), emailEnabled: emailEnabled(), waEnabled: waEnabled(), emailSender: isAdm ? emailSender() : "", defaultTemplate: TEMPLATES.pt, templateVars: TEMPLATE_VARS, today: todayBR(),
       countries: COUNTRIES, currencies: CURRENCIES,
       users: isAdm ? users.map(userPublic) : [],
@@ -631,6 +761,8 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
       if (b.doc && !validDoc(b.doc)) return fail("CPF inválido.");
       // o e-mail é o login, então vale para o sistema todo (não pode repetir em outra empresa)
       if (await getLogin(email)) return fail("Esse e-mail já está em uso no sistema. Use outro e-mail para este consultor.");
+      const max = maxSellersOf(company, await getSystem());
+      if (max && (await listDocs("users/")).filter((x) => !x.demo).length >= max) return fail(`O seu plano permite até ${max} consultor${max > 1 ? "es" : ""}. Fale com o suporte para aumentar.`, 403);
       const pw = newPassword();
       const u = { id: token(), name: clean(b.name, 120), doc: onlyDigits(b.doc), email, phone: clean(b.phone, 30), active: true, signature: null, createdAt: nowISO(), ...hashPassword(pw) };
       await saveUser(u);

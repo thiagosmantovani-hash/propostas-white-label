@@ -1,6 +1,5 @@
-// Catálogo de exemplo, usado só nos testes (tests/e2e.py).
-// O sistema começa com o catálogo vazio: cada empresa cadastra os próprios serviços em Serviços no painel.
-// Serviços e preços abaixo são fictícios.
+// Catálogo de exemplo (serviços e preços fictícios): usado na conta modelo de teste e nos testes (tests/e2e.py).
+// As contas novas começam com o catálogo vazio: cada empresa cadastra os próprios serviços em Serviços no painel.
 
 const ONCE = { pt: "{total} pagos no início", es: "{total} pagados al inicio", en: "{total} paid at the start" };
 const INST = {
