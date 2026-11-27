@@ -534,7 +534,7 @@ async function accountRoutes(req, url, kind, context) {
 }
 
 // configurações do sistema todo (painel do dono): system
-const SYSTEM_DEFAULTS = { productName: "Propostas", signupOpen: true, notice: "", defaultMaxSellers: 0, defaultValidityDays: 15 };
+const SYSTEM_DEFAULTS = { productName: "Fechaí", signupOpen: true, notice: "", defaultMaxSellers: 0, defaultValidityDays: 15 };
 async function getSystem() { return { ...SYSTEM_DEFAULTS, ...((await (await rootDb()).get("system")) || {}) }; }
 const signupOpen = (sys) => sys.signupOpen !== false && env("SIGNUP_CLOSED") !== "1";
 const maxSellersOf = (c, sys) => { const n = c.maxSellers != null ? c.maxSellers : sys.defaultMaxSellers; return Number(n) > 0 ? Number(n) : 0; };

@@ -9,12 +9,12 @@ export const BRAND_DEFAULTS = {
   statValue: "",
   statLabel: "",
   principles: ["Ouvir antes de propor.", "Planejar antes de executar.", "Cumprir o combinado.", "Acompanhar de perto."],
-  colors: { primary: "#3b63d9", accent: "#e07b39", dark: "#111318", light: "#f2f0ea" },
-  fontTitle: "archivo",
+  colors: { primary: "#1f6049", accent: "#d4f26a", dark: "#0e2a20", light: "#f4f7f1" },
+  fontTitle: "alexandria",
   fontText: "alexandria",
   emailFromName: "",
   layout: "neutro", // modelo da página da proposta (LAYOUTS)
-  style: { caps: true, corners: "redondo", hero: "escuro", hide: [], theme: "escuro" }, // ajustes finos do modelo; theme = tema da página do cliente
+  style: { caps: false, corners: "redondo", hero: "marca", hide: [], theme: "escuro" }, // ajustes finos do modelo; theme = tema da página do cliente
   logos: { escuro: null, claro: null }, // versão da imagem salva (ou null): escuro = logo para fundo escuro, claro = para fundo claro
   portfolio: [], // [{ id, name, v }]
 };
@@ -40,17 +40,19 @@ export function cleanPageTexts(v) {
 // Modelos de página da proposta: cada um traz cores, fontes e ajustes próprios.
 // A empresa escolhe um modelo e pode trocar qualquer item depois (Página da proposta no painel).
 export const LAYOUTS = {
-  neutro: { colors: { primary: "#3b63d9", accent: "#e07b39", dark: "#111318", light: "#f2f0ea" }, fontTitle: "archivo", fontText: "alexandria", style: { caps: true, corners: "redondo", hero: "escuro" } },
+  // Neutro = visual padrão do sistema (verde escuro e verde-limão, cantos arredondados)
+  neutro: { colors: { primary: "#1f6049", accent: "#d4f26a", dark: "#0e2a20", light: "#f4f7f1" }, fontTitle: "alexandria", fontText: "alexandria", style: { caps: false, corners: "redondo", hero: "marca" } },
   saude: { colors: { primary: "#1f8a8a", accent: "#3fa98c", dark: "#0f3b3c", light: "#f3f8f7" }, fontTitle: "nunito", fontText: "lato", style: { caps: false, corners: "redondo", hero: "marca" } },
   construcao: { colors: { primary: "#e0a019", accent: "#d9561f", dark: "#1b1b1b", light: "#f2eee6" }, fontTitle: "montserrat", fontText: "roboto", style: { caps: true, corners: "reto", hero: "escuro" } },
   tecnologia: { colors: { primary: "#5b5ff0", accent: "#14b8d4", dark: "#0b1020", light: "#eef1fb" }, fontTitle: "inter", fontText: "inter", style: { caps: false, corners: "suave", hero: "marca" } },
 };
 export const SECTIONS = ["boas-vindas", "principios", "etapas", "galeria", "agradecimento"];
-const CORNERS = { reto: ["3px", "0px"], suave: ["10px", "12px"], redondo: ["999px", "20px"] };
+// [botões, cartões, faixas da página, espaço entre as faixas]
+const CORNERS = { reto: ["3px", "0px", "0px", "0px"], suave: ["10px", "14px", "18px", "10px"], redondo: ["14px", "24px", "32px", "14px"] };
 export function cleanStyle(x, old) {
   const o = { ...BRAND_DEFAULTS.style, ...(old || {}) }, v = x && typeof x === "object" ? x : {};
   return {
-    caps: "caps" in v ? !!v.caps : o.caps !== false,
+    caps: "caps" in v ? !!v.caps : o.caps === true,
     corners: CORNERS[v.corners] ? v.corners : CORNERS[o.corners] ? o.corners : "redondo",
     hero: ["escuro", "marca"].includes(v.hero) ? v.hero : ["escuro", "marca"].includes(o.hero) ? o.hero : "escuro",
     hide: (Array.isArray(v.hide) ? v.hide : Array.isArray(o.hide) ? o.hide : []).filter((k) => SECTIONS.includes(k)),
@@ -61,7 +63,7 @@ export function cleanStyle(x, old) {
 export function styleCss(st) {
   const c = CORNERS[st.corners] || CORNERS.redondo;
   const hide = { "boas-vindas": "#boas-vindas,a[href=\"#boas-vindas\"]", principios: ".about-side", etapas: "#etapas,a[href=\"#etapas\"]", galeria: ".brands", agradecimento: ".statement" };
-  let css = `:root{--tt:${st.caps ? "uppercase" : "none"};--r-pill:${c[0]};--r-card:${c[1]};--hero-bg:${st.hero === "marca" ? "linear-gradient(135deg,var(--primary-deep),var(--night) 75%)" : "var(--night)"}}\n`;
+  let css = `:root{--tt:${st.caps ? "uppercase" : "none"};--r-pill:${c[0]};--r-card:${c[1]};--r-sec:${c[2]};--sec-gap:${c[3]};--hero-bg:${st.hero === "marca" ? "linear-gradient(135deg,var(--primary-deep),var(--night) 75%)" : "var(--night)"}}\n`;
   const h = (st.hide || []).map((k) => hide[k]).filter(Boolean);
   if (h.length) css += `${h.join(",")}{display:none!important}\n`;
   return css;
@@ -116,7 +118,17 @@ export function brandCss(settings) {
   const b = brandOf(settings);
   const fams = [...new Set([b.fontTitle, b.fontText])].map((k) => FONTS[k]).filter((f) => f.google);
   const imp = fams.length ? `@import url("https://fonts.googleapis.com/css2?${fams.map((f) => "family=" + f.google).join("&")}&display=swap");\n` : "";
-  return `${imp}:root{--c-dark:${b.colors.dark};--c-light:${b.colors.light};--primary:${b.colors.primary};--accent:${b.colors.accent};--f-display:${FONTS[b.fontTitle].stack};--f-sans:${FONTS[b.fontText].stack}}\n${styleCss(b.style)}`;
+  return `${imp}:root{--c-dark:${b.colors.dark};--c-light:${b.colors.light};--primary:${b.colors.primary};--accent:${b.colors.accent};${contrastVars(b.colors)}--f-display:${FONTS[b.fontTitle].stack};--f-sans:${FONTS[b.fontText].stack}}\n${styleCss(b.style)}`;
+}
+
+// Contraste automático: cor do texto sobre a cor principal e sobre a de destaque, e uma versão legível
+// do destaque para texto em fundo claro (ex.: verde-limão vira verde-oliva). O painel repete esta conta na prévia.
+const lum = (hex) => { const [r, g, b] = rgb01(hex).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+export function contrastVars(c) {
+  const dark = lum(c.dark) < 0.2 ? c.dark : "#111111";
+  const on = (x) => (lum(x) > 0.4 ? dark : "#ffffff");
+  const ink = (x) => (lum(x) > 0.4 ? `color-mix(in srgb,${x} 42%,${dark})` : x);
+  return `--on-primary:${on(c.primary)};--on-accent:${on(c.accent)};--accent-ink:${ink(c.accent)};--primary-ink:${ink(c.primary)};`;
 }
 
 /* ---------- imagens (logos e galeria) ---------- */

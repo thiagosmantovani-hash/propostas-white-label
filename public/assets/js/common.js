@@ -107,7 +107,7 @@
       <div class="foot-row">
         <p>${R.esc(ag.tagline || "")}</p>
         <span></span>
-        ${contact ? `<div class="foot-contact"><span class="label" style="color:var(--accent)">${T("foot_talk", "Fale com a gente")}</span>${contact}</div>` : ""}
+        ${contact ? `<div class="foot-contact"><span class="label" style="color:var(--acc-t)">${T("foot_talk", "Fale com a gente")}</span>${contact}</div>` : ""}
       </div>
       <a class="foot-logo" href="#inicio" aria-label="${T("foot_top", "Voltar ao topo")}">${R.logoHTML("claro")}</a>
       <div class="foot-legal"><span>© ${new Date().getFullYear()} ${R.esc(ag.name)}. ${T("foot_rights", "Todos os direitos reservados.")}</span><span>${R.esc(ag.city || "")}</span></div>

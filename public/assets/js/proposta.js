@@ -147,7 +147,7 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
       <section class="pick wrap on-light" id="servicos">
         <div class="inner">
           <div class="pick-head">
-            <div><span class="label" style="color:var(--accent)">${t("pick_label")}</span><h2 class="h-sec">${t("pick_h")}</h2></div>
+            <div><span class="label" style="color:var(--acc-t)">${t("pick_label")}</span><h2 class="h-sec">${t("pick_h")}</h2></div>
             <p id="pickNote"></p>
           </div>
           ${groupsHTML()}
@@ -168,7 +168,7 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
 
       ${gallery.length ? `<section class="brands wrap on-light" aria-labelledby="pf">
         <div class="inner">
-          <div class="brands-head"><div><span class="label" style="color:var(--accent)">${t("pf_label")}</span><h2 class="h-sec" id="pf" style="margin-top:16px">${t("pf_h")}</h2></div><p>${t("pf_p")}</p></div>
+          <div class="brands-head"><div><span class="label" style="color:var(--acc-t)">${t("pf_label")}</span><h2 class="h-sec" id="pf" style="margin-top:16px">${t("pf_h")}</h2></div><p>${t("pf_p")}</p></div>
           <ul class="logo-grid">${gallery.map((g) => `<li><figure><img src="/api/public/portfolio/${encodeURIComponent(g.id)}${R.imgQ(g.v)}" alt="${esc(g.name || "")}" loading="lazy" decoding="async" width="400" height="300">${g.name ? `<figcaption>${esc(g.name)}</figcaption>` : ""}</figure></li>`).join("")}</ul>
         </div>
       </section>` : ""}
