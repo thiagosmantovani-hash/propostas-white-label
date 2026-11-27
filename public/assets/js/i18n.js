@@ -213,6 +213,26 @@
   R.lang = "pt";
   R.cur = "BRL";
   R.setLocale = (lang, cur) => { R.lang = D[lang] ? lang : "pt"; R.cur = cur || "BRL"; document.documentElement.lang = LOC[R.lang]; };
+  // Textos de exemplo de cada modelo de página (saúde, construção e tecnologia); o neutro usa os textos acima.
+  // Valem quando a empresa deixa o campo em branco em Página da proposta.
+  const LAYOUT_TEXTS = {
+    saude: {
+      pt: { hero_blur: "Cuidado e atenção em cada", hero_sharp: "detalhe", welcome: "Seja bem-vindo. Preparamos esta proposta com atenção ao que você precisa e ao seu bem-estar.", team: "Conte com um atendimento <strong>próximo, humano e responsável.</strong>", pick_h: "O cuidado certo <em>para você</em>", thanks: "Obrigado pela confiança. Estamos prontos para <em>cuidar</em> de você." },
+      es: { hero_blur: "Cuidado y atención en cada", hero_sharp: "detalle", welcome: "Bienvenido. Preparamos esta propuesta con atención a lo que necesitas y a tu bienestar.", team: "Cuenta con una atención <strong>cercana, humana y responsable.</strong>", pick_h: "El cuidado adecuado <em>para ti</em>", thanks: "Gracias por tu confianza. Estamos listos para <em>cuidarte</em>." },
+      en: { hero_blur: "Care and attention in every", hero_sharp: "detail", welcome: "Welcome. We prepared this proposal with attention to what you need and to your well-being.", team: "Count on <strong>close, caring and responsible service.</strong>", pick_h: "The right care <em>for you</em>", thanks: "Thank you for your trust. We're ready to <em>take care</em> of you." },
+    },
+    construcao: {
+      pt: { hero_blur: "Do projeto à entrega, uma obra feita com", hero_sharp: "solidez", welcome: "Seja bem-vindo. Preparamos esta proposta com escopo claro, prazos definidos e execução bem feita.", team: "Pode contar com <strong>organização, segurança e o prazo cumprido.</strong>", pick_h: "O que vamos <em>construir</em>", thanks: "Obrigado pela confiança. Vamos <em>construir</em> juntos." },
+      es: { hero_blur: "Del proyecto a la entrega, una obra hecha con", hero_sharp: "solidez", welcome: "Bienvenido. Preparamos esta propuesta con alcance claro, plazos definidos y una ejecución bien hecha.", team: "Cuenta con <strong>organización, seguridad y plazos cumplidos.</strong>", pick_h: "Lo que vamos a <em>construir</em>", thanks: "Gracias por tu confianza. Vamos a <em>construir</em> juntos." },
+      en: { hero_blur: "From plan to handover, a project built with", hero_sharp: "solidity", welcome: "Welcome. We prepared this proposal with a clear scope, set deadlines and quality execution.", team: "Count on <strong>organization, safety and deadlines met.</strong>", pick_h: "What we'll <em>build</em>", thanks: "Thank you for your trust. Let's <em>build</em> it together." },
+    },
+    tecnologia: {
+      pt: { hero_blur: "Tecnologia para o seu negócio", hero_sharp: "avançar", welcome: "Seja bem-vindo. Preparamos esta proposta com as soluções certas para o momento do seu negócio.", team: "Conte com <strong>agilidade, segurança e suporte de verdade.</strong>", pick_h: "A solução certa <em>para você</em>", thanks: "Obrigado pelo seu tempo. Vamos <em>evoluir</em> juntos." },
+      es: { hero_blur: "Tecnología para que tu negocio", hero_sharp: "avance", welcome: "Bienvenido. Preparamos esta propuesta con las soluciones adecuadas para el momento de tu negocio.", team: "Cuenta con <strong>agilidad, seguridad y soporte real.</strong>", pick_h: "La solución adecuada <em>para ti</em>", thanks: "Gracias por tu tiempo. Vamos a <em>evolucionar</em> juntos." },
+      en: { hero_blur: "Technology to move your business", hero_sharp: "forward", welcome: "Welcome. We prepared this proposal with the right solutions for where your business is now.", team: "Count on <strong>speed, security and real support.</strong>", pick_h: "The right solution <em>for you</em>", thanks: "Thank you for your time. Let's <em>grow</em> together." },
+    },
+  };
+  R.LAYOUT_TEXTS = LAYOUT_TEXTS;
   // Textos padrão em português (o painel mostra como exemplo nos campos de "Página da proposta")
   R.T_PT = D.pt;
   // Texto personalizado pela empresa (Dados da empresa › Página da proposta): vale em todos os idiomas.
@@ -222,7 +242,8 @@
   R.fmtText = (c) => R.esc(c.trim()).replace(/\*([^*\n]+)\*/g, "<em>$1</em>").replace(/\n/g, "<br>");
   R.t = (k, v) => {
     const c = custom(k);
-    let s = c != null ? R.fmtText(c) : (D[R.lang] && D[R.lang][k] != null ? D[R.lang][k] : D.pt[k]);
+    const L = LAYOUT_TEXTS[R.B && R.B.layout], lt = L && ((L[R.lang] && L[R.lang][k]) ?? (L.pt && L.pt[k]));
+    let s = c != null ? R.fmtText(c) : lt != null ? lt : (D[R.lang] && D[R.lang][k] != null ? D[R.lang][k] : D.pt[k]);
     if (s == null) return k;
     if (typeof s === "string") { const vv = { a: R.esc((R.B && R.B.name) || ""), ...(v || {}) }; s = s.replace(/\{(\w+)\}/g, (m, x) => (vv[x] != null ? vv[x] : m)); }
     return s;

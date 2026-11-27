@@ -275,3 +275,31 @@ code.pw{font-family:ui-monospace,Menlo,monospace;font-size:15px;background:color
 .tx-group[open] summary::after{content:"−"}
 .tx-group>.stack{margin-top:14px}
 .tx-group .ta{min-height:72px}
+/* Página da proposta: atalho em Empresa, modelos, ajustes e prévia */
+a.page-cta{display:flex;justify-content:space-between;align-items:center;gap:16px;text-decoration:none}
+a.page-cta b{display:block;font-weight:600;font-size:16px}
+a.page-cta small{display:block;font-size:13px;color:color-mix(in srgb,var(--cream) 70%,transparent);margin-top:4px}
+.tpl-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.tpl{appearance:none;text-align:left;font:inherit;color:var(--cream);background:transparent;border:1px solid var(--line-dark-2);border-radius:12px;padding:10px;display:grid;gap:4px;cursor:pointer;transition:border-color .2s,background .2s}
+.tpl:hover{border-color:var(--line-dark)}
+.tpl.on{border-color:var(--accent-soft);background:color-mix(in srgb,var(--accent-soft) 10%,transparent);box-shadow:0 0 0 1px var(--accent-soft)}
+.tpl>b{font-weight:600;font-size:14.5px;margin-top:6px}
+.tpl>small{font-size:12px;line-height:1.4;color:color-mix(in srgb,var(--cream) 65%,transparent)}
+.tpl-mock{position:relative;display:block;height:100px;border-radius:8px;overflow:hidden;padding:12px}
+.tpl-mock i{position:absolute;right:10px;top:10px;width:10px;height:10px;border-radius:50%}
+.tpl-mock b{display:block;font-weight:800;font-size:17px;line-height:1}
+.tpl-mock em{display:block;font-style:normal;font-weight:700;font-size:13px;margin-top:4px}
+.tpl-mock span{position:absolute;left:0;right:0;bottom:0;height:26px;opacity:.95}
+.tpl-mock u{position:absolute;left:12px;top:56px;width:44px;height:10px;text-decoration:none}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg label{cursor:pointer}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span{display:inline-block;border:1px solid var(--line-dark-2);border-radius:999px;padding:7px 12px;font-size:13px}
+.seg input:checked+span{background:var(--accent-soft);border-color:var(--accent-soft);color:var(--ink);font-weight:500}
+.seg input:focus-visible+span{outline:2px solid var(--accent-soft);outline-offset:2px}
+.sec-list{display:grid;gap:8px}
+.page-prev{position:sticky;top:84px}
+.prev-frame{border:1px solid var(--line-dark-2);border-radius:10px;overflow:hidden;background:var(--ink);height:min(72vh,760px)}
+.prev-frame iframe{display:block;width:100%;height:100%;border:0}
+@media (max-width:900px){.page-prev{position:static}.prev-frame{height:560px}}
+@media (max-width:520px){.tpl-grid{grid-template-columns:1fr}}

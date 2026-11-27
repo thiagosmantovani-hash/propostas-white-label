@@ -346,7 +346,7 @@
   /* ---------- casca ---------- */
   function shell(active, html) {
     const nav = isAdm()
-      ? [["#/", "Propostas", "list"], ["#/servicos", "Serviços", "cat"], ["#/equipe", "Equipe", "team"], ["#/empresa", "Empresa", "biz"], ["#/config", "Configurações", "cfg"], ...(S.data.su ? [] : [["#/conta", "Minha conta", "acc"]])]
+      ? [["#/", "Propostas", "list"], ["#/pagina", "Página da proposta", "page"], ["#/servicos", "Serviços", "cat"], ["#/equipe", "Equipe", "team"], ["#/empresa", "Empresa", "biz"], ["#/config", "Configurações", "cfg"], ...(S.data.su ? [] : [["#/conta", "Minha conta", "acc"]])]
       : [["#/", "Propostas", "list"], ["#/perfil", "Meu perfil", "me"]];
     app.innerHTML = `${S.data.notice ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>${esc(S.data.notice)}</span></div>` : ""}${S.data.su ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>Você está no painel de <b>${esc(S.data.company.name)}</b> como dono do sistema.</span><button type="button" class="pill pill-cream pill-sm" id="suBack">Voltar à lista de empresas</button></div>` : ""}<header class="adm-top wrap"><div class="inner">
         <a class="brand" href="#/">${R.logoHTML("escuro")}</a><span class="tag">${isAdm() ? "Propostas" : "Consultor · " + esc(first(me().name))}</span>
@@ -381,6 +381,7 @@
       if (h === "servicos") return catalog();
       if (h === "config") return config();
       if (h === "empresa") return empresa();
+      if (h === "pagina") return pagina();
       if (h === "equipe") return team();
       if (h === "conta" && !S.data.su) return account();
     } else if (h === "perfil") return profile();
@@ -1322,7 +1323,7 @@
     your_order: "Etiqueta", h_review: "Título", lead_review: "Explicação", fine: "Aviso abaixo do resumo", accept: "Frase de concordância (caixa de marcar)", send: "Texto do botão de enviar",
     thanks_p: "Mensagem depois que o cliente envia o pedido", signed_p: "Mensagem depois que o contrato é assinado",
   };
-  const txDefault = (k) => String((R.T_PT && R.T_PT[k]) || "").replace(/<em>(.*?)<\/em>|<strong>(.*?)<\/strong>/g, (m, x, y) => `*${x || y}*`).replace(/<br>/g, "\n").replace(/<[^>]+>/g, "").replace(/\{a\}/g, S.data.settings.agency.name || "sua empresa").replace(/\{d\}/g, "[data]").replace(/\{n\}/g, "");
+  const txDefault = (k) => String((S.pg && R.LAYOUT_TEXTS && R.LAYOUT_TEXTS[S.pg.layout] && R.LAYOUT_TEXTS[S.pg.layout].pt[k]) || (R.T_PT && R.T_PT[k]) || "").replace(/<em>(.*?)<\/em>|<strong>(.*?)<\/strong>/g, (m, x, y) => `*${x || y}*`).replace(/<br>/g, "\n").replace(/<[^>]+>/g, "").replace(/\{a\}/g, S.data.settings.agency.name || "sua empresa").replace(/\{d\}/g, "[data]").replace(/\{n\}/g, "");
   function tx(k) {
     const v = (S.data.settings.pageTexts || {})[k] || "", ph = txDefault(k), long = ph.length > 70 || ph.includes("\n");
     return `<label class="fl"><span>${TX_LABEL[k]}</span>${long ? `<textarea class="ta" data-tx="${k}" rows="3" placeholder="${esc(ph)}">${esc(v)}</textarea>` : `<input class="inp" data-tx="${k}" value="${esc(v)}" placeholder="${esc(ph)}">`}</label>`;
@@ -1330,20 +1331,18 @@
   const txGroup = (title, body, open) => `<details class="tx-group"${open ? " open" : ""}><summary>${title}</summary><div class="stack">${body}</div></details>`;
   function empresa() {
     const st = S.data.settings, a = st.agency, b = st.brand || {};
-    if (!S.biz) S.biz = { colors: { ...DEF_COLORS, ...(b.colors || {}) }, fontTitle: b.fontTitle || "archivo", fontText: b.fontText || "alexandria" };
-    const C = S.biz.colors, fonts = S.data.fonts || [];
     const fld = (k, l, ph = "", hint = "") => `<label class="fl"><span>${l}</span><input class="inp" data-ag="${k}" value="${esc(/cnpj|Doc/.test(k) ? R.maskDoc(a[k] || "") : a[k] || "")}" placeholder="${esc(ph)}"${/cnpj|Doc/.test(k) ? ' inputmode="numeric"' : ""}>${hint ? `<small>${hint}</small>` : ""}</label>`;
     const logoSlot = (kind, title, hint) => {
       const v = b.logos && b.logos[kind];
       return `<div class="logo-slot ${kind}"><div class="logo-prev">${v ? `<img src="/api/public/logo/${kind}${R.imgQ(v)}" alt="">` : `<span class="wordmark">${esc(a.name || "Sua empresa")}</span>`}</div>
         <div><b>${title}</b><small>${hint}</small><div class="row-acts"><label class="pill pill-cream pill-sm">${v ? "Trocar" : "Enviar logo"}<input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" data-logo="${kind}" hidden></label>${v ? `<button type="button" class="link-btn" data-logo-del="${kind}">Remover</button>` : ""}</div></div></div>`;
     };
-    const fontSel = (id, cur) => `<select class="sel" id="${id}">${fonts.map(([k, l]) => `<option value="${k}"${k === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
     const pf = b.portfolio || [];
     shell("biz", `
-      <div class="pgh"><div><span class="label">White label</span><h1>Dados da empresa</h1><p class="sub">Nome, logo, cores, fontes e textos que aparecem nas propostas, nos contratos, nos e-mails e no WhatsApp. Serve para empresas e para freelancers.</p></div></div>
+      <div class="pgh"><div><span class="label">White label</span><h1>Dados da empresa</h1><p class="sub">Nome, contato, logo, galeria e assinatura que aparecem nas propostas, nos contratos, nos e-mails e no WhatsApp. Serve para empresas e para freelancers.</p></div></div>
       <div class="cols">
         <div class="stack">
+          <a class="card accent page-cta" href="#/pagina"><span><b>Página da proposta</b><small>Modelo, cores, fontes e todos os textos que o cliente vê ficam em Página da proposta, com prévia ao lado.</small></span><span class="pill pill-green">Abrir</span></a>
           <div class="card"><h2>Identificação e contrato</h2>
             <div class="grid2">${fld("name", "Nome que o cliente vê *", "Ex.: Estúdio Aurora ou Ana Souza Fotografia")}${fld("legalName", "Razão social ou nome completo *", "Como deve sair no contrato")}${fld("cnpj", "CNPJ ou CPF *", "", "Freelancer sem CNPJ pode usar o CPF.")}${fld("email", "E-mail *")}</div>
             ${fld("address", "Endereço completo *", "Rua, número, bairro e CEP")}
@@ -1353,21 +1352,6 @@
           <div class="card"><h2>Contato</h2>
             <div class="grid3"><label class="fl"><span>WhatsApp</span><input class="inp" id="cWa" inputmode="tel" value="${esc(st.whatsapp || "")}" placeholder="5511999990000"></label><label class="fl"><span>Instagram</span><input class="inp" id="cIg" value="${esc(st.instagram || "")}" placeholder="@suaempresa"></label><label class="fl"><span>Site</span><input class="inp" id="cSite" value="${esc(st.site || "")}" placeholder="https://"></label></div>
             <p class="muted small" style="margin:0">Aparecem no rodapé das propostas e nos botões de WhatsApp. O WhatsApp também recebe os avisos de pedido e assinatura.</p>
-          </div>
-          <div class="card"><h2>Página da proposta</h2>
-            <p class="muted small" style="margin:0">Todos os textos que o cliente vê na proposta, na ordem da página. Campo em branco usa o texto de exemplo (que já tem versão em espanhol e inglês); o que você escrever aparece igual em todos os idiomas. Para destacar uma palavra, coloque entre asteriscos: *assim*.</p>
-            ${txGroup("Topo da página", tx("hero_label") + tx("hero_blur") + tx("hero_sharp"), true)}
-            ${txGroup("Boas-vindas", tx("welcome") + `<label class="fl"><span>Texto de apresentação</span><textarea class="ta" id="cIntro" rows="4">${esc(st.intro)}</textarea></label>
-            <label class="fl"><span>Quem somos</span><textarea class="ta" id="bAbout" rows="4">${esc(b.about || "")}</textarea></label>` + tx("team") + `
-            <div class="grid2"><label class="fl"><span>Número em destaque</span><input class="inp" id="bStatV" maxlength="12" value="${esc(b.statValue || "")}" placeholder="Ex.: +10"></label><label class="fl"><span>Legenda do número</span><input class="inp" id="bStatL" maxlength="60" value="${esc(b.statLabel || "")}" placeholder="Ex.: anos de experiência"></label></div>
-            <label class="fl"><span>Como trabalhamos</span><textarea class="ta" id="bPrin" rows="4">${esc((b.principles || []).join("\n"))}</textarea><small>Uma frase por linha, até 6. Em branco, o bloco não aparece.</small></label>`)}
-            ${txGroup("Serviços", tx("pick_label") + tx("pick_h") + tx("note_fixed"))}
-            ${txGroup("Etapas", tx("steps_label") + tx("steps_h") + tx("steps_p") + tx("after_order") + `<label class="fl"><span>Próximos passos</span><textarea class="ta" id="cNext" rows="5">${esc(stepsToText(st.nextSteps))}</textarea><small>Um passo por linha, no formato Título: explicação.</small></label>`)}
-            ${txGroup("Galeria de trabalhos", tx("pf_label") + tx("pf_h") + tx("pf_p"))}
-            ${txGroup("Agradecimento", tx("thanks"))}
-            ${txGroup("Pedido", tx("your_order") + tx("h_review") + tx("lead_review") + tx("fine") + tx("accept") + tx("send"))}
-            ${txGroup("Depois do pedido", tx("thanks_p") + tx("signed_p"))}
-            ${txGroup("Rodapé", `<label class="fl"><span>Slogan</span><input class="inp" id="bTag" maxlength="160" value="${esc(b.tagline || "")}" placeholder="Ex.: Fotografia de casamento em todo o Brasil"><small>Rodapé das páginas, dos e-mails e do PDF.</small></label>`)}
           </div>
           <div class="card"><div class="ch"><h2>Galeria de trabalhos</h2><label class="pill pill-cream pill-sm">Adicionar imagens<input type="file" accept="image/png,image/jpeg,image/webp" id="pfAdd" multiple hidden></label></div>
             <p class="muted small" style="margin:0">Aparece nas propostas quando tiver pelo menos uma imagem. As fotos são reduzidas para 1600 px antes de enviar.</p>
@@ -1379,15 +1363,6 @@
             ${logoSlot("escuro", "Para fundo escuro", "Topo das páginas e do painel. De preferência PNG claro com fundo transparente.")}
             ${logoSlot("claro", "Para fundo claro", "Rodapé, contrato e PDF. De preferência PNG escuro com fundo transparente.")}
             <p class="muted small" style="margin:0">Sem logo, o nome da empresa aparece em texto.</p>
-          </div>
-          <div class="card"><div class="ch"><h2>Cores</h2><button type="button" class="pill pill-line pill-sm" id="colReset">Cores padrão</button></div>
-            ${Object.keys(DEF_COLORS).map((k) => `<label class="color-row"><input type="color" data-col="${k}" value="${esc(C[k])}"><span><b>${COLOR_LABEL[k][0]}</b><small>${COLOR_LABEL[k][1]}</small></span><input class="inp mono" data-colhex="${k}" value="${esc(C[k])}" maxlength="7" spellcheck="false"></label>`).join("")}
-            <div class="brand-prev"><span class="label">${esc(b.tagline || "Prévia")}</span><b>Proposta <em>comercial</em></b><span class="pill pill-green">Enviar pedido</span></div>
-            <p class="muted small" style="margin:0">A prévia e o painel mudam na hora; as propostas mudam ao salvar.</p>
-          </div>
-          <div class="card"><h2>Fontes</h2>
-            <div class="grid2"><label class="fl"><span>Títulos</span>${fontSel("fTitle", S.biz.fontTitle)}</label><label class="fl"><span>Textos</span>${fontSel("fText", S.biz.fontText)}</label></div>
-            <p class="muted small" style="margin:0">Fontes do Google são carregadas pelo navegador do cliente. O PDF do contrato usa sempre a fonte Alexandria.</p>
           </div>
           <div class="card"><h2>Remetente dos e-mails</h2>
             <label class="fl"><span>Nome do remetente</span><input class="inp" id="bFrom" maxlength="80" value="${esc(b.emailFromName || "")}" placeholder="${esc(a.name || "")}"><small>Em branco, usa o nome da empresa. O endereço vem de GMAIL_USER ou EMAIL_FROM no Netlify${S.data.emailSender ? ` (hoje: ${esc(S.data.emailSender)})` : ""}.</small></label>
@@ -1402,8 +1377,131 @@
     bindEmpresa();
   }
 
+  /* ---------- página da proposta (modelo, aparência e textos) ---------- */
+  const LAYOUT_INFO = {
+    neutro: ["Neutro", "Serve para qualquer negócio. Sóbrio, com títulos fortes."],
+    saude: ["Saúde", "Clínicas, consultórios e bem-estar. Tons suaves e cantos arredondados."],
+    construcao: ["Construção", "Obras, reformas e engenharia. Contraste forte e cantos retos."],
+    tecnologia: ["Tecnologia", "Software, TI e serviços digitais. Moderno, com degradê no topo."],
+  };
+  const SECTION_LABEL = [["boas-vindas", "Boas-vindas"], ["principios", "Número em destaque e Como trabalhamos"], ["etapas", "Etapas"], ["galeria", "Galeria de trabalhos"], ["agradecimento", "Agradecimento"]];
+  const CORNER_PX = { reto: ["3px", "0px"], suave: ["10px", "12px"], redondo: ["999px", "20px"] };
+  const exampleUrl = () => `/p/exemplo?e=${encodeURIComponent(S.data.company.id)}&k=${encodeURIComponent(S.data.exampleKey || "")}`;
+  function pagina() {
+    const st = S.data.settings, b = st.brand || {}, LY = S.data.layouts || {};
+    if (!S.pg) S.pg = { layout: b.layout || "neutro", colors: { ...DEF_COLORS, ...(b.colors || {}) }, fontTitle: b.fontTitle || "archivo", fontText: b.fontText || "alexandria", style: { caps: true, corners: "redondo", hero: "escuro", hide: [], ...(b.style || {}) } };
+    const G = S.pg, C = G.colors, fonts = S.data.fonts || [];
+    const fontSel = (id, cur) => `<select class="sel" id="${id}">${fonts.map(([k, l]) => `<option value="${k}"${k === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+    const tpl = (k) => { const L = LY[k] || { colors: DEF_COLORS }, c = L.colors; return `<button type="button" class="tpl${G.layout === k ? " on" : ""}" data-tpl="${k}" aria-pressed="${G.layout === k}">
+        <span class="tpl-mock" style="background:${c.dark};color:${c.light}"><i style="background:${c.primary}"></i><b style="color:${c.light}">Proposta</b><em style="color:${c.accent}">para você</em><span style="background:${c.light}"></span><u style="background:${c.primary};border-radius:${CORNER_PX[(L.style || {}).corners || "redondo"][0]}"></u></span>
+        <b>${LAYOUT_INFO[k][0]}</b><small>${LAYOUT_INFO[k][1]}</small></button>`; };
+    const seg = (name, opts, cur) => `<div class="seg" role="radiogroup">${opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}"${cur === v ? " checked" : ""}><span>${l}</span></label>`).join("")}</div>`;
+    shell("page", `
+      <div class="pgh"><div><span class="label">O que o cliente vê</span><h1>Página da proposta</h1><p class="sub">Escolha um modelo, ajuste cores, fontes e detalhes se quiser, e escreva os seus textos. A prévia ao lado mostra como o cliente vai ver.</p></div><a class="pill pill-line" href="${exampleUrl()}" target="_blank" rel="noopener" id="pgOpen">Abrir prévia em nova aba</a></div>
+      <div class="cols page-cols">
+        <div class="stack">
+          <div class="card"><h2>1. Modelo</h2>
+            <div class="tpl-grid">${Object.keys(LAYOUT_INFO).map(tpl).join("")}</div>
+            <p class="muted small" style="margin:0">Trocar de modelo muda cores, fontes, ajustes e os textos de exemplo. Os textos que você escreveu continuam.</p>
+          </div>
+          <div class="card"><div class="ch"><h2>2. Cores e fontes</h2><button type="button" class="pill pill-line pill-sm" id="colReset">Cores do modelo</button></div>
+            ${Object.keys(DEF_COLORS).map((k) => `<label class="color-row"><input type="color" data-col="${k}" value="${esc(C[k])}"><span><b>${COLOR_LABEL[k][0]}</b><small>${COLOR_LABEL[k][1]}</small></span><input class="inp mono" data-colhex="${k}" value="${esc(C[k])}" maxlength="7" spellcheck="false"></label>`).join("")}
+            <div class="grid2"><label class="fl"><span>Fonte dos títulos</span>${fontSel("fTitle", G.fontTitle)}</label><label class="fl"><span>Fonte dos textos</span>${fontSel("fText", G.fontText)}</label></div>
+            <p class="muted small" style="margin:0">Fontes do Google são carregadas pelo navegador do cliente. O PDF do contrato usa sempre a fonte Alexandria.</p>
+          </div>
+          <div class="card"><h2>3. Ajustes finos</h2>
+            <div class="grid2"><div class="fl"><span>Cantos</span>${seg("pgCorners", [["reto", "Retos"], ["suave", "Suaves"], ["redondo", "Redondos"]], G.style.corners)}</div>
+            <div class="fl"><span>Fundo do topo</span>${seg("pgHero", [["escuro", "Cor de fundo"], ["marca", "Degradê da marca"]], G.style.hero)}</div></div>
+            <label class="check"><input type="checkbox" id="pgCaps"${G.style.caps ? " checked" : ""}><span>Títulos em letras maiúsculas</span></label>
+            <div class="fl"><span>Partes que aparecem na proposta</span><div class="sec-list">${SECTION_LABEL.map(([k, l]) => `<label class="check"><input type="checkbox" data-sec="${k}"${G.style.hide.includes(k) ? "" : " checked"}><span>${l}</span></label>`).join("")}</div><small>Serviços, valores e o formulário do pedido sempre aparecem.</small></div>
+          </div>
+          <div class="card"><h2>4. Textos</h2>
+            <p class="muted small" style="margin:0">Campo em branco usa o texto de exemplo do modelo (que já tem versão em espanhol e inglês); o que você escrever aparece igual em todos os idiomas. Para destacar uma palavra, coloque entre asteriscos: *assim*. A galeria de fotos fica em <a href="#/empresa">Empresa</a>.</p>
+            ${txGroup("Topo da página", tx("hero_label") + tx("hero_blur") + tx("hero_sharp"), true)}
+            ${txGroup("Boas-vindas", tx("welcome") + `<label class="fl"><span>Texto de apresentação</span><textarea class="ta" id="cIntro" rows="4">${esc(st.intro)}</textarea></label>
+            <label class="fl"><span>Quem somos</span><textarea class="ta" id="bAbout" rows="4">${esc(b.about || "")}</textarea></label>` + tx("team") + `
+            <div class="grid2"><label class="fl"><span>Número em destaque</span><input class="inp" id="bStatV" maxlength="12" value="${esc(b.statValue || "")}" placeholder="Ex.: +10"></label><label class="fl"><span>Legenda do número</span><input class="inp" id="bStatL" maxlength="60" value="${esc(b.statLabel || "")}" placeholder="Ex.: anos de experiência"></label></div>
+            <label class="fl"><span>Como trabalhamos</span><textarea class="ta" id="bPrin" rows="4">${esc((b.principles || []).join("\n"))}</textarea><small>Uma frase por linha, até 6. Em branco, o bloco não aparece.</small></label>`)}
+            ${txGroup("Serviços", tx("pick_label") + tx("pick_h") + tx("note_fixed"))}
+            ${txGroup("Etapas", tx("steps_label") + tx("steps_h") + tx("steps_p") + tx("after_order") + `<label class="fl"><span>Próximos passos</span><textarea class="ta" id="cNext" rows="5">${esc(stepsToText(st.nextSteps))}</textarea><small>Um passo por linha, no formato Título: explicação.</small></label>`)}
+            ${txGroup("Galeria de trabalhos", tx("pf_label") + tx("pf_h") + tx("pf_p"))}
+            ${txGroup("Agradecimento", tx("thanks"))}
+            ${txGroup("Pedido", tx("your_order") + tx("h_review") + tx("lead_review") + tx("fine") + tx("accept") + tx("send"))}
+            ${txGroup("Depois do pedido", tx("thanks_p") + tx("signed_p"))}
+            ${txGroup("Rodapé", `<label class="fl"><span>Slogan</span><input class="inp" id="bTag" maxlength="160" value="${esc(b.tagline || "")}" placeholder="Ex.: Fotografia de casamento em todo o Brasil"><small>Rodapé das páginas, dos e-mails e do PDF.</small></label>`)}
+          </div>
+        </div>
+        <div class="stack page-prev">
+          <div class="card"><div class="ch"><h2>Prévia</h2><button type="button" class="pill pill-line pill-sm" id="pgReload">Atualizar</button></div>
+            <div class="prev-frame"><iframe id="pgFrame" title="Prévia da página da proposta" src="${exampleUrl()}" loading="lazy"></iframe></div>
+            <p class="muted small" style="margin:0">Cores, cantos, fundo e partes mudam na hora. Textos e fontes aparecem na prévia depois de salvar.</p>
+          </div>
+        </div>
+      </div>
+      <div class="savebar"><div class="inner"><span class="sb-sum">Vale para todas as propostas, inclusive as que já foram enviadas.</span><button type="button" class="pill pill-green pill-lg" id="pageSave">Salvar página da proposta</button></div></div>`);
+    bindPagina();
+  }
+
+  // CSS dos ajustes finos: o mesmo que /api/public/brand.css gera (netlify/lib/brand.mjs, styleCss)
+  function pageStyleCss(G) {
+    const c = CORNER_PX[G.style.corners] || CORNER_PX.redondo, st = G.style;
+    const hide = { "boas-vindas": '#boas-vindas,a[href="#boas-vindas"]', principios: ".about-side", etapas: '#etapas,a[href="#etapas"]', galeria: ".brands", agradecimento: ".statement" };
+    let css = `:root{--ink:${G.colors.dark};--cream:${G.colors.light};--primary:${G.colors.primary};--accent:${G.colors.accent};--tt:${st.caps ? "uppercase" : "none"};--r-pill:${c[0]};--r-card:${c[1]};--hero-bg:${st.hero === "marca" ? "linear-gradient(135deg,var(--primary-deep),var(--night) 75%)" : "var(--night)"}}\n`;
+    const h = st.hide.map((k) => hide[k]).filter(Boolean);
+    if (h.length) css += `${h.join(",")}{display:none!important}\n`;
+    return css;
+  }
+  function livePreview() {
+    const f = $("#pgFrame"); let d; try { d = f && f.contentDocument; } catch (e) { return; }
+    if (!d || !d.head) return;
+    let el = d.getElementById("live-style"); if (!el) { el = d.createElement("style"); el.id = "live-style"; d.head.appendChild(el); }
+    el.textContent = pageStyleCss(S.pg);
+  }
+
+  function bindPagina() {
+    const G = S.pg, LY = S.data.layouts || {};
+    const syncColors = () => Object.entries(G.colors).forEach(([k, v]) => { const c = $(`[data-col="${k}"]`), h = $(`[data-colhex="${k}"]`); if (c && c.value !== v) c.value = v; if (h && h.value !== v) h.value = v; });
+    const setCol = (k, v) => { G.colors[k] = v; syncColors(); livePreview(); };
+    $$("[data-col]").forEach((i) => i.addEventListener("input", () => setCol(i.dataset.col, i.value.toLowerCase())));
+    $$("[data-colhex]").forEach((i) => i.addEventListener("input", () => { const v = i.value.trim().toLowerCase(); if (/^#[0-9a-f]{6}$/.test(v)) setCol(i.dataset.colhex, v); }));
+    $("#colReset").addEventListener("click", () => { G.colors = { ...((LY[G.layout] || {}).colors || DEF_COLORS) }; syncColors(); livePreview(); });
+    $("#fTitle").addEventListener("change", (e) => (G.fontTitle = e.target.value));
+    $("#fText").addEventListener("change", (e) => (G.fontText = e.target.value));
+    $$('[name="pgCorners"]').forEach((r) => r.addEventListener("change", () => { G.style.corners = r.value; livePreview(); }));
+    $$('[name="pgHero"]').forEach((r) => r.addEventListener("change", () => { G.style.hero = r.value; livePreview(); }));
+    $("#pgCaps").addEventListener("change", (e) => { G.style.caps = e.target.checked; livePreview(); });
+    $$("[data-sec]").forEach((c) => c.addEventListener("change", () => { G.style.hide = $$("[data-sec]").filter((x) => !x.checked).map((x) => x.dataset.sec); livePreview(); }));
+    // modelo: troca cores, fontes e ajustes (mantém as partes escolhidas e os textos escritos)
+    $$("[data-tpl]").forEach((btn) => btn.addEventListener("click", () => {
+      const k = btn.dataset.tpl, L = LY[k]; if (!L) return;
+      G.layout = k; G.colors = { ...L.colors }; G.fontTitle = L.fontTitle; G.fontText = L.fontText; G.style = { ...G.style, ...L.style };
+      $$("[data-tpl]").forEach((b) => { const on = b.dataset.tpl === k; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
+      syncColors(); $("#fTitle").value = G.fontTitle; $("#fText").value = G.fontText;
+      $$('[name="pgCorners"]').forEach((r) => (r.checked = r.value === G.style.corners));
+      $$('[name="pgHero"]').forEach((r) => (r.checked = r.value === G.style.hero));
+      $("#pgCaps").checked = G.style.caps;
+      $$("[data-tx]").forEach((i) => (i.placeholder = txDefault(i.dataset.tx)));
+      livePreview();
+      R.toast(`Modelo ${LAYOUT_INFO[k][0]} aplicado. Ajuste o que quiser e salve.`);
+    }));
+    const fr = $("#pgFrame");
+    fr.addEventListener("load", () => { livePreview(); setTimeout(livePreview, 400); });
+    $("#pgReload").addEventListener("click", () => { fr.src = exampleUrl() + "&t=" + Date.now(); });
+    $("#pageSave").addEventListener("click", async (e) => {
+      const brand = {
+        layout: G.layout, colors: G.colors, fontTitle: G.fontTitle, fontText: G.fontText, style: G.style,
+        tagline: $("#bTag").value.trim(), about: $("#bAbout").value.trim(), statValue: $("#bStatV").value.trim(), statLabel: $("#bStatL").value.trim(),
+        principles: $("#bPrin").value.split("\n").map((x) => x.trim()).filter(Boolean),
+      };
+      busy(e.currentTarget, true, "Salvando…");
+      try {
+        await put("settings", { brand, intro: $("#cIntro").value.trim(), nextSteps: textToSteps($("#cNext").value), pageTexts: Object.fromEntries($$("[data-tx]").map((i) => [i.dataset.tx, i.value.trim()])) });
+        await reload(); S.pg = null; refreshBrandCss(); pagina(); R.toast("Página da proposta salva.");
+      } catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
+    });
+  }
+
   // aplica cores e fontes no painel aberto (prévia) e recarrega o CSS da marca depois de salvar
-  const applyColors = (c) => { const r = document.documentElement.style; r.setProperty("--primary", c.primary); r.setProperty("--accent", c.accent); r.setProperty("--ink", c.dark); r.setProperty("--cream", c.light); };
   function refreshBrandCss() { const l = document.querySelector('link[href^="/api/public/brand.css"]'); const e = (S.data && S.data.company && S.data.company.id) || ""; if (l) l.href = "/api/public/brand.css?e=" + encodeURIComponent(e) + "&t=" + Date.now(); document.documentElement.removeAttribute("style"); }
 
   // lê um arquivo de imagem e devolve um data URL reduzido (PNG para logos, JPEG para fotos)
@@ -1431,14 +1529,6 @@
   function bindEmpresa() {
     const rerender = () => { const y = window.scrollY; empresa(); window.scrollTo(0, y); };
     $$('[data-ag="cnpj"],[data-ag="representativeDoc"]').forEach((i) => i.addEventListener("input", () => (i.value = R.maskDoc(i.value))));
-    // cores
-    const setCol = (k, v) => { S.biz.colors[k] = v; const c = $(`[data-col="${k}"]`), h = $(`[data-colhex="${k}"]`); if (c.value !== v) c.value = v; if (h.value !== v) h.value = v; applyColors(S.biz.colors); };
-    $$("[data-col]").forEach((i) => i.addEventListener("input", () => setCol(i.dataset.col, i.value.toLowerCase())));
-    $$("[data-colhex]").forEach((i) => i.addEventListener("input", () => { const v = i.value.trim().toLowerCase(); if (/^#[0-9a-f]{6}$/.test(v)) setCol(i.dataset.colhex, v); }));
-    $("#colReset").addEventListener("click", () => Object.entries(DEF_COLORS).forEach(([k, v]) => setCol(k, v)));
-    applyColors(S.biz.colors);
-    $("#fTitle").addEventListener("change", (e) => (S.biz.fontTitle = e.target.value));
-    $("#fText").addEventListener("change", (e) => (S.biz.fontText = e.target.value));
     // logos
     $$("[data-logo]").forEach((inp) => inp.addEventListener("change", async () => {
       const f = inp.files && inp.files[0]; if (!f) return;
@@ -1491,17 +1581,14 @@
       const agency = {}; $$("[data-ag]").forEach((i) => (agency[i.dataset.ag] = i.dataset.ag.match(/cnpj|Doc/) ? R.digits(i.value) : i.value.trim()));
       if (!agency.name) { R.toast("Informe o nome que o cliente vê."); $('[data-ag="name"]').focus(); return; }
       if (agency.cnpj && !R.validDoc(agency.cnpj)) { R.toast("CNPJ ou CPF inválido."); $('[data-ag="cnpj"]').focus(); return; }
-      const brand = {
-        tagline: $("#bTag").value.trim(), about: $("#bAbout").value.trim(), statValue: $("#bStatV").value.trim(), statLabel: $("#bStatL").value.trim(),
-        principles: $("#bPrin").value.split("\n").map((x) => x.trim()).filter(Boolean), colors: S.biz.colors, fontTitle: S.biz.fontTitle, fontText: S.biz.fontText, emailFromName: $("#bFrom").value.trim(),
-      };
+      const brand = { emailFromName: $("#bFrom").value.trim() };
       // nomes da galeria editados na lista
       const L = $$("[data-pf]").length ? pfList() : null;
       busy(e.currentTarget, true, "Salvando…");
       try {
-        await put("settings", { agency, brand, whatsapp: $("#cWa").value, instagram: $("#cIg").value, site: $("#cSite").value.trim(), intro: $("#cIntro").value.trim(), nextSteps: textToSteps($("#cNext").value), pageTexts: Object.fromEntries($$("[data-tx]").map((i) => [i.dataset.tx, i.value.trim()])) });
+        await put("settings", { agency, brand, whatsapp: $("#cWa").value, instagram: $("#cIg").value, site: $("#cSite").value.trim() });
         if (L) await put("brand-image", { portfolio: L });
-        await reload(); S.biz = null; refreshBrandCss(); empresa(); R.toast("Dados da empresa salvos.");
+        await reload(); refreshBrandCss(); empresa(); R.toast("Dados da empresa salvos.");
       } catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
     });
   }
