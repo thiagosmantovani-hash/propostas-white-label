@@ -8,6 +8,10 @@
   const S = { token: R.store.get("adm", ""), data: null, filter: "todas", q: "", seller: "", edit: null, cat: null, catOpen: null, catLang: "pt", detail: null, padAgency: null, padInter: null, padCfg: null, padMe: null, showText: false, loginAs: R.store.get("admAs", "admin"), userOpen: null, newPw: null };
   const ST = { rascunho: "Rascunho", enviada: "Enviada", visualizada: "Visualizada", pedido: "Pedido recebido", contrato: "Aguardando assinatura", assinada: "Assinada", recusada: "Recusada", vencida: "Vencida" };
   const LANG = { pt: "Português", es: "Espanhol", en: "Inglês" };
+  // Tema claro ou escuro do painel: escolha de cada pessoa, guardada neste navegador
+  R.setTheme(R.store.get("tema", "escuro"));
+  const themeBtn = () => { const to = R.theme() === "claro" ? "escuro" : "claro"; return `<button class="pill pill-line theme-btn" type="button" id="themeBtn" title="Usar o tema ${to}" aria-label="Usar o tema ${to}">${to === "claro" ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>'}</button>`; };
+  const bindTheme = (redraw) => { const b = $("#themeBtn"); if (b) b.addEventListener("click", () => { const t = R.theme() === "claro" ? "escuro" : "claro"; R.setTheme(t); R.store.set("tema", t); redraw(); }); };
   const stKey = (p) => (p.expired ? "vencida" : p.status);
   const stPill = (p) => `<span class="st ${stKey(p)}">${ST[stKey(p)] || p.status}</span>`;
   const first = (n) => String(n || "").trim().split(/\s+/)[0] || "";
@@ -38,7 +42,7 @@
     if (S.data.role === "super") return;
     const st = S.data.settings;
     R.store.set("empresa", S.data.company.id);
-    R.setBrand({ ...st.agency, e: S.data.company.id, whatsapp: st.whatsapp, logos: (st.brand && st.brand.logos) || {} });
+    R.setBrand({ ...st.agency, theme: "", e: S.data.company.id, whatsapp: st.whatsapp, logos: (st.brand && st.brand.logos) || {} });
   }
   function logout(msg) { if (DONO) { S.token = ""; S.data = null; R.store.set("adm", ""); R.store.set("admSuper", ""); R.store.set("empresa", ""); R.setBrand({}); history.replaceState(null, "", "/dono"); return login("dono", typeof msg === "string" ? msg : ""); } S.token = ""; S.data = null; R.store.set("adm", ""); R.store.set("admSuper", ""); R.store.set("empresa", ""); R.setBrand({}); if (location.hash && !/^#\/?$/.test(location.hash)) history.replaceState(null, "", "#/"); login("entrar", typeof msg === "string" ? msg : ""); }
 
@@ -183,7 +187,7 @@
     const lim = (c) => (c.maxSellers ? `${c.sellers} de ${c.maxSellers}` : `${c.sellers}`);
     app.innerHTML = `<header class="adm-top wrap"><div class="inner">
         <a class="brand" href="/dono"><span class="wordmark">${esc(sys.productName)}</span></a><span class="tag">Painel do dono</span>
-        <nav><a class="pill pill-line" href="#sup-cfg">Configurações</a><a class="pill pill-line" href="#sup-contas">Contas</a><button class="pill pill-line" type="button" id="logout">Sair</button></nav>
+        <nav><a class="pill pill-line" href="#sup-cfg">Configurações</a><a class="pill pill-line" href="#sup-contas">Contas</a>${themeBtn()}<button class="pill pill-line" type="button" id="logout">Sair</button></nav>
       </div></header><main class="adm-main wrap"><div class="inner">
       <div class="pgh"><div><span class="label">Dono do sistema</span><h1>Painel do dono</h1><p class="sub">Controle o sistema todo: regras para as contas novas, avisos, cadastro aberto ou fechado e cada conta cadastrada.</p></div>
         <div class="acts"><button type="button" class="pill pill-green pill-lg" id="supNewBtn">Criar conta</button></div></div>
@@ -233,6 +237,7 @@
       </tbody></table></div>` : `<div class="card"><div class="empty"><b>${cs.length ? "Nenhuma conta com esse filtro" : "Nenhuma conta ainda"}</b><span>${cs.length ? "Mude a busca ou o filtro." : "Quando alguém criar a conta pela página de divulgação, ela aparece aqui. Você também pode criar em Criar conta."}</span></div></div>`}
       </div></main>`;
     $("#logout").addEventListener("click", () => logout());
+    bindTheme(superPanel);
     const byId = (id) => cs.find((c) => c.id === id) || {};
     const out = (html) => { $("#supOut").innerHTML = html; $("#supOut").scrollIntoView({ behavior: "smooth", block: "center" }); };
     const refresh = async (msg) => { await reload(); superPanel(); if (msg) R.toast(msg); };
@@ -350,9 +355,10 @@
       : [["#/", "Propostas", "list"], ["#/perfil", "Meu perfil", "me"]];
     app.innerHTML = `${S.data.notice ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>${esc(S.data.notice)}</span></div>` : ""}${S.data.su ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>Você está no painel de <b>${esc(S.data.company.name)}</b> como dono do sistema.</span><button type="button" class="pill pill-cream pill-sm" id="suBack">Voltar à lista de empresas</button></div>` : ""}<header class="adm-top wrap"><div class="inner">
         <a class="brand" href="#/">${R.logoHTML("escuro")}</a><span class="tag">${isAdm() ? "Propostas" : "Consultor · " + esc(first(me().name))}</span>
-        <nav>${nav.map(([h, t, k]) => `<a class="pill ${active === k ? "on" : "pill-line"}" href="${h}">${t}</a>`).join("")}<a class="pill pill-green" href="#/nova">Nova proposta</a><button class="pill pill-line" type="button" id="logout">Sair</button></nav>
+        <nav>${nav.map(([h, t, k]) => `<a class="pill ${active === k ? "on" : "pill-line"}" href="${h}">${t}</a>`).join("")}<a class="pill pill-green" href="#/nova">Nova proposta</a>${themeBtn()}<button class="pill pill-line" type="button" id="logout">Sair</button></nav>
       </div></header><main class="adm-main wrap"><div class="inner">${html}</div></main>`;
     $("#logout").addEventListener("click", () => (S.data.su ? backToSuper() : logout()));
+    bindTheme(route);
     const sb = $("#suBack"); if (sb) sb.addEventListener("click", backToSuper);
     $$('.adm-top nav a[href="#/"], .adm-top .brand').forEach((a) => a.addEventListener("click", () => { S.view = "all"; S.sel && S.sel.clear(); if (location.hash === "#/" || !location.hash) list(); }));
     window.scrollTo(0, 0);
@@ -1360,8 +1366,8 @@
         </div>
         <div class="stack">
           <div class="card"><h2>Logo</h2>
-            ${logoSlot("escuro", "Para fundo escuro", "Topo das páginas e do painel. De preferência PNG claro com fundo transparente.")}
-            ${logoSlot("claro", "Para fundo claro", "Rodapé, contrato e PDF. De preferência PNG escuro com fundo transparente.")}
+            ${logoSlot("escuro", "Para fundo escuro", "Aparece sobre fundos escuros (no tema escuro, o topo das páginas e do painel). De preferência PNG claro com fundo transparente.")}
+            ${logoSlot("claro", "Para fundo claro", "Aparece sobre fundos claros (rodapé, contrato, PDF e o topo no tema claro). De preferência PNG escuro com fundo transparente.")}
             <p class="muted small" style="margin:0">Sem logo, o nome da empresa aparece em texto.</p>
           </div>
           <div class="card"><h2>Remetente dos e-mails</h2>
@@ -1412,6 +1418,7 @@
           <div class="card"><h2>3. Ajustes finos</h2>
             <div class="grid2"><div class="fl"><span>Cantos</span>${seg("pgCorners", [["reto", "Retos"], ["suave", "Suaves"], ["redondo", "Redondos"]], G.style.corners)}</div>
             <div class="fl"><span>Fundo do topo</span>${seg("pgHero", [["escuro", "Cor de fundo"], ["marca", "Degradê da marca"]], G.style.hero)}</div></div>
+            <div class="fl"><span>Tema da página do cliente</span>${seg("pgTheme", [["escuro", "Escuro"], ["claro", "Claro"]], G.style.theme || "escuro")}<small>Vale para a proposta e o contrato que o cliente abre.</small></div>
             <label class="check"><input type="checkbox" id="pgCaps"${G.style.caps ? " checked" : ""}><span>Títulos em letras maiúsculas</span></label>
             <div class="fl"><span>Partes que aparecem na proposta</span><div class="sec-list">${SECTION_LABEL.map(([k, l]) => `<label class="check"><input type="checkbox" data-sec="${k}"${G.style.hide.includes(k) ? "" : " checked"}><span>${l}</span></label>`).join("")}</div><small>Serviços, valores e o formulário do pedido sempre aparecem.</small></div>
           </div>
@@ -1446,7 +1453,7 @@
   function pageStyleCss(G) {
     const c = CORNER_PX[G.style.corners] || CORNER_PX.redondo, st = G.style;
     const hide = { "boas-vindas": '#boas-vindas,a[href="#boas-vindas"]', principios: ".about-side", etapas: '#etapas,a[href="#etapas"]', galeria: ".brands", agradecimento: ".statement" };
-    let css = `:root{--ink:${G.colors.dark};--cream:${G.colors.light};--primary:${G.colors.primary};--accent:${G.colors.accent};--tt:${st.caps ? "uppercase" : "none"};--r-pill:${c[0]};--r-card:${c[1]};--hero-bg:${st.hero === "marca" ? "linear-gradient(135deg,var(--primary-deep),var(--night) 75%)" : "var(--night)"}}\n`;
+    let css = `:root{--c-dark:${G.colors.dark};--c-light:${G.colors.light};--primary:${G.colors.primary};--accent:${G.colors.accent};--tt:${st.caps ? "uppercase" : "none"};--r-pill:${c[0]};--r-card:${c[1]};--hero-bg:${st.hero === "marca" ? "linear-gradient(135deg,var(--primary-deep),var(--night) 75%)" : "var(--night)"}}\n`;
     const h = st.hide.map((k) => hide[k]).filter(Boolean);
     if (h.length) css += `${h.join(",")}{display:none!important}\n`;
     return css;
@@ -1456,6 +1463,7 @@
     if (!d || !d.head) return;
     let el = d.getElementById("live-style"); if (!el) { el = d.createElement("style"); el.id = "live-style"; d.head.appendChild(el); }
     el.textContent = pageStyleCss(S.pg);
+    if (S.pg.style.theme === "claro") d.documentElement.dataset.theme = "claro"; else delete d.documentElement.dataset.theme;
   }
 
   function bindPagina() {
@@ -1469,6 +1477,7 @@
     $("#fText").addEventListener("change", (e) => (G.fontText = e.target.value));
     $$('[name="pgCorners"]').forEach((r) => r.addEventListener("change", () => { G.style.corners = r.value; livePreview(); }));
     $$('[name="pgHero"]').forEach((r) => r.addEventListener("change", () => { G.style.hero = r.value; livePreview(); }));
+    $$('[name="pgTheme"]').forEach((r) => r.addEventListener("change", () => { G.style.theme = r.value; livePreview(); }));
     $("#pgCaps").addEventListener("change", (e) => { G.style.caps = e.target.checked; livePreview(); });
     $$("[data-sec]").forEach((c) => c.addEventListener("change", () => { G.style.hide = $$("[data-sec]").filter((x) => !x.checked).map((x) => x.dataset.sec); livePreview(); }));
     // modelo: troca cores, fontes e ajustes (mantém as partes escolhidas e os textos escritos)

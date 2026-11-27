@@ -20,9 +20,13 @@
   R.E = new URLSearchParams(location.search).get("e") || "";
   R.ref = () => "?ref=" + encodeURIComponent(location.pathname + location.search);
   R.imgQ = (v) => `?e=${encodeURIComponent(R.B.e || R.E)}&v=${encodeURIComponent(v || "")}`;
-  R.setBrand = (ag) => { R.B = { logos: {}, ...(ag || {}) }; };
+  R.setBrand = (ag) => { R.B = { logos: {}, ...(ag || {}) }; if (R.B.theme) R.setTheme(R.B.theme); };
+  // Tema claro ou escuro: no painel é escolha de cada pessoa (salva no navegador); nas páginas do cliente vem da empresa
+  R.theme = () => (document.documentElement.dataset.theme === "claro" ? "claro" : "escuro");
+  R.setTheme = (t) => { if (t === "claro") document.documentElement.dataset.theme = "claro"; else delete document.documentElement.dataset.theme; };
   // logo "escuro" vai sobre fundo escuro; "claro" sobre fundo claro. Sem imagem, o nome vira o logo.
-  R.logoHTML = (kind) => {
+  R.logoHTML = (kind, fixed) => {
+    if (!fixed && R.theme() === "claro") kind = kind === "escuro" ? "claro" : "escuro"; // no tema claro os fundos se invertem (o papel do contrato não)
     const v = R.B.logos && R.B.logos[kind];
     return v ? `<img src="/api/public/logo/${kind}${R.imgQ(v)}" alt="${R.esc(R.B.name)}">` : `<span class="wordmark">${R.esc(R.B.name)}</span>`;
   };

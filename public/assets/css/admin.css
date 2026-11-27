@@ -67,6 +67,8 @@ body.adm{background:var(--night);font-size:15px}
 .st.visualizada{color:var(--accent-soft);border-color:var(--accent-soft)}
 .st.pedido{background:var(--accent);border-color:var(--accent);color:var(--cream)}
 .st.contrato{color:#e8c37a;border-color:#e8c37a}
+:root[data-theme="claro"] .st.contrato{color:#9a6b12;border-color:#9a6b12}
+:root[data-theme="claro"] .login{background:color-mix(in srgb,var(--ink) 92%,var(--primary))}
 .st.assinada{background:var(--primary);border-color:var(--primary);color:var(--cream)}
 .st.recusada,.st.vencida{color:color-mix(in srgb,var(--cream) 45%,transparent);border-color:var(--line-dark-2);text-decoration:line-through}
 
@@ -148,7 +150,7 @@ code.pw{font-family:ui-monospace,Menlo,monospace;font-size:15px;background:color
 .vars button:hover{border-color:var(--accent-soft)}
 
 /* login */
-.login{min-height:100vh;display:grid;place-items:center;position:relative;overflow:hidden;background:#050505;padding:24px}
+.login{min-height:100vh;display:grid;place-items:center;position:relative;overflow:hidden;background:color-mix(in srgb,var(--ink) 80%,#000);padding:24px}
 .login .cols{position:absolute;inset:0;display:grid;grid-template-columns:repeat(4,1fr);pointer-events:none}
 .login .cols span{border-left:1px solid var(--line-dark-2)}
 .login .cols span:first-child{border-left:0}
@@ -247,8 +249,8 @@ code.pw{font-family:ui-monospace,Menlo,monospace;font-size:15px;background:color
 .logo-slot b{display:block;font-weight:500}
 .logo-slot small{display:block;font-size:12px;color:color-mix(in srgb,var(--cream) 60%,transparent);margin:2px 0 8px}
 .logo-prev{height:72px;border-radius:6px;display:grid;place-items:center;padding:10px;border:1px solid var(--line-dark-2);overflow:hidden}
-.logo-slot.escuro .logo-prev{background:var(--ink);color:var(--cream)}
-.logo-slot.claro .logo-prev{background:var(--cream);color:var(--ink)}
+.logo-slot.escuro .logo-prev{background:var(--c-dark);color:var(--c-light)}
+.logo-slot.claro .logo-prev{background:var(--c-light);color:var(--c-dark)}
 .logo-prev img{max-height:48px;max-width:100%;width:auto}
 .logo-prev .wordmark{font-size:13px;white-space:normal;text-align:center}
 .color-row{display:grid;grid-template-columns:44px minmax(0,1fr) 96px;gap:12px;align-items:center}
@@ -303,3 +305,4 @@ a.page-cta small{display:block;font-size:13px;color:color-mix(in srgb,var(--crea
 .prev-frame iframe{display:block;width:100%;height:100%;border:0}
 @media (max-width:900px){.page-prev{position:static}.prev-frame{height:560px}}
 @media (max-width:520px){.tpl-grid{grid-template-columns:1fr}}
+.theme-btn{padding-inline:10px}.theme-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}

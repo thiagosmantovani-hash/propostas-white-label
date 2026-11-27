@@ -14,7 +14,7 @@ export const BRAND_DEFAULTS = {
   fontText: "alexandria",
   emailFromName: "",
   layout: "neutro", // modelo da página da proposta (LAYOUTS)
-  style: { caps: true, corners: "redondo", hero: "escuro", hide: [] }, // ajustes finos do modelo
+  style: { caps: true, corners: "redondo", hero: "escuro", hide: [], theme: "escuro" }, // ajustes finos do modelo; theme = tema da página do cliente
   logos: { escuro: null, claro: null }, // versão da imagem salva (ou null): escuro = logo para fundo escuro, claro = para fundo claro
   portfolio: [], // [{ id, name, v }]
 };
@@ -54,6 +54,7 @@ export function cleanStyle(x, old) {
     corners: CORNERS[v.corners] ? v.corners : CORNERS[o.corners] ? o.corners : "redondo",
     hero: ["escuro", "marca"].includes(v.hero) ? v.hero : ["escuro", "marca"].includes(o.hero) ? o.hero : "escuro",
     hide: (Array.isArray(v.hide) ? v.hide : Array.isArray(o.hide) ? o.hide : []).filter((k) => SECTIONS.includes(k)),
+    theme: ["escuro", "claro"].includes(v.theme) ? v.theme : o.theme === "claro" ? "claro" : "escuro",
   };
 }
 // Regras de CSS dos ajustes finos (as mesmas o painel aplica na prévia ao vivo)
@@ -115,7 +116,7 @@ export function brandCss(settings) {
   const b = brandOf(settings);
   const fams = [...new Set([b.fontTitle, b.fontText])].map((k) => FONTS[k]).filter((f) => f.google);
   const imp = fams.length ? `@import url("https://fonts.googleapis.com/css2?${fams.map((f) => "family=" + f.google).join("&")}&display=swap");\n` : "";
-  return `${imp}:root{--ink:${b.colors.dark};--cream:${b.colors.light};--primary:${b.colors.primary};--accent:${b.colors.accent};--f-display:${FONTS[b.fontTitle].stack};--f-sans:${FONTS[b.fontText].stack}}\n${styleCss(b.style)}`;
+  return `${imp}:root{--c-dark:${b.colors.dark};--c-light:${b.colors.light};--primary:${b.colors.primary};--accent:${b.colors.accent};--f-display:${FONTS[b.fontTitle].stack};--f-sans:${FONTS[b.fontText].stack}}\n${styleCss(b.style)}`;
 }
 
 /* ---------- imagens (logos e galeria) ---------- */
