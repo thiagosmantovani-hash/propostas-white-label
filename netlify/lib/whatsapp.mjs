@@ -51,9 +51,9 @@ export async function sendWaMany(phones, message) {
 // Textos de cada etapa, no idioma da proposta
 export const WA = {
   orderClient: {
-    pt: (n, num, link) => `Olá, ${n}! Recebemos o seu pedido da proposta nº ${num} de {A}. Em breve enviamos o contrato para assinatura on-line.\n\nAcompanhe por aqui: ${link}`,
-    es: (n, num, link) => `¡Hola, ${n}! Recibimos tu pedido de la propuesta nº ${num} de {A}. En breve te enviamos el contrato para firmar en línea.\n\nSíguelo aquí: ${link}`,
-    en: (n, num, link) => `Hi ${n}! We received your order for {A}'s proposal no. ${num}. We'll send you the agreement to sign online shortly.\n\nTrack it here: ${link}`,
+    pt: (n, num, link) => `Olá, ${n}! Recebemos o seu pedido pela proposta de {A}. Em breve enviamos o contrato para assinatura on-line.\n\nAcompanhe por aqui: ${link}`,
+    es: (n, num, link) => `¡Hola, ${n}! Recibimos tu pedido por la propuesta de {A}. En breve te enviamos el contrato para firmar en línea.\n\nSíguelo aquí: ${link}`,
+    en: (n, num, link) => `Hi ${n}! We received your order through {A}'s proposal. We'll send you the agreement to sign online shortly.\n\nTrack it here: ${link}`,
   },
   contractClient: {
     pt: (n, num, link) => `Olá, ${n}! O contrato nº ${num} com os serviços que você escolheu está pronto e já assinado por {A}. Falta só a sua assinatura, por aqui: ${link}`,

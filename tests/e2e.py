@@ -268,7 +268,7 @@ async def main():
             if local:  # no site publicado não sobrescreve os dados reais da empresa
                 for k, v in {"name": "Estúdio Exemplo", "legalName": "Estúdio Exemplo Ltda", "cnpj": "11222333000181", "email": "contato@exemplo.com", "address": "Rua Exemplo, 100, Centro, CEP 01001-000", "city": "São Paulo - SP", "representative": "Ana Exemplo da Silva", "representativeDoc": "52998224725"}.items():
                     await A.fill(f'[data-ag="{k}"]', v)
-                await A.fill("#cWa", "5511999990000"); await A.fill("#bTag", "Serviços sob medida")
+                await A.fill("#cWa", "5511999990000"); await A.click("details.tx-group:has-text('Rodapé') summary"); await A.fill("#bTag", "Serviços sob medida")
                 await A.fill('[data-colhex="primary"]', "#0f766e"); await A.fill('[data-colhex="accent"]', "#d97706")
                 await A.click("#bizSave"); await A.wait_for_timeout(900)
                 assert "salvos" in (await toast(A)), await toast(A)
@@ -278,6 +278,16 @@ async def main():
                 await must(A, ".logo-slot.claro img")
             if await A.query_selector("#cfgPad"):
                 await draw(A, "#cfgPad canvas"); await A.click("#sgSave"); await must(A, ".sig-saved img")
+            # textos da página da proposta (empresa criada pelo teste)
+            await must(A, '[data-tx="hero_blur"]')
+            await A.fill('[data-tx="hero_label"]', "Orçamento personalizado")
+            await A.fill('[data-tx="hero_blur"]', "Frase inicial do teste para o seu")
+            await A.fill('[data-tx="hero_sharp"]', "projeto")
+            await A.click("details.tx-group:has-text('Agradecimento') summary")
+            await A.fill('[data-tx="thanks"]', "Obrigado por *confiar* no teste")
+            await A.click("#bizSave"); await A.wait_for_timeout(900)
+            await go(A, "#/empresa"); await must(A, '[data-tx="hero_blur"]')
+            assert await A.input_value('[data-tx="hero_blur"]') == "Frase inicial do teste para o seu"
             await shot(A, "02a-dados-da-empresa")
             css = urllib.request.urlopen(BASE + "/api/public/brand.css?e=" + COMPANY["id"]).read().decode()
             if local: assert "#0f766e" in css, css
@@ -347,7 +357,8 @@ async def main():
 
         async with Step("08 Consultor edita a proposta"):
             await go(V, f"#/proposta/{st['p_seller']}/editar"); await must(V, "#edSave")
-            await V.fill('[data-k="message"]', "Mensagem editada pelo teste")
+            assert not await V.query_selector('[data-k="message"]'), "ainda há o campo de mensagem antes das boas-vindas"
+            await V.fill('[data-k="title"]', "Título editado pelo teste")
             await V.click("#edSave"); await must(V, ".share")
 
         async with Step("09 Consultor monta proposta para o Paraguai em dólar"):
@@ -366,6 +377,11 @@ async def main():
         async with Step("13 Cliente BR abre a proposta (capa, CEP, cidade) e envia o pedido"):
             await C.goto(f"{BASE}/p/{st['p_admin_seller']}"); await must(C, ".hero-flat")
             assert not await C.query_selector(".hero .cols, .hero canvas"), "capa ainda tem linhas"
+            hero = await C.text_content(".hero")
+            assert "Frase inicial do teste para o seu" in hero and "projeto" in hero and "Orçamento personalizado" in hero, hero
+            assert "nº" not in hero and "nº" not in await C.title(), "número da proposta aparece para o cliente"
+            assert "<em>confiar</em>" in await C.inner_html(".statement"), await C.inner_html(".statement")
+            assert not await C.query_selector(".star, .msg-row"), "ainda há o símbolo antigo ou a mensagem antes das boas-vindas"
             await shot(C, "13-cliente-capa", full=False)
             await client_order_br(C, st["p_admin_seller"])
             await shot(C, "13-cliente-pedido")

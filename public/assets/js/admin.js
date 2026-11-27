@@ -553,7 +553,7 @@
     S.edit = {
       id, number: p ? p.number : "", locked: p && ["contrato", "assinada"].includes(p.status), hasOrder: !!(p && p.order),
       client: p ? { ...p.client } : { name: "", company: "", contact: "", phone: "", email: "" },
-      title: p ? p.title : "", message: p ? p.message : "", validUntil: p ? p.validUntil : addDays(today, S.data.settings.validityDays || 15),
+      title: p ? p.title : "", validUntil: p ? p.validUntil : addDays(today, S.data.settings.validityDays || 15),
       folderId: p ? p.folderId || "" : S.newFolder || "", country: (p && p.country) || "BR", lang: (p && p.lang) || "pt", currency: (p && p.currency) || "BRL", sellerId: (p && p.sellerId) || "", rate: R.store.get("rate." + ((p && p.currency) || "USD"), ""),
       services: {}, order: [],
     };
@@ -600,7 +600,6 @@
           </div>
           <div class="card"><h2>Proposta</h2>
             <label class="fl"><span>Título</span><input class="inp" data-k="title" value="${esc(E.title)}" placeholder="Gerado pelos serviços, se ficar vazio"></label>
-            <label class="fl"><span>Mensagem para o cliente</span><textarea class="ta" data-k="message" rows="4" placeholder="Opcional. Aparece em destaque no início da proposta.">${esc(E.message)}</textarea></label>
             <label class="fl"><span>Válida até</span><input class="inp" type="date" data-k="validUntil" value="${esc(E.validUntil)}"></label>
             <label class="fl"><span>Pasta do cliente</span><select class="sel" data-k="folderId"><option value="">Sem pasta</option>${folders().map((f) => `<option value="${f.id}"${f.id === E.folderId ? " selected" : ""}>${esc(f.name)}</option>`).join("")}</select>${folders().length ? "" : "<small>Crie pastas na lateral da lista de propostas.</small>"}</label>
             ${isAdm() ? `<label class="fl"><span>Consultor responsável</span><select class="sel" id="eSeller"><option value="">Nenhum (direto com a empresa)</option>${users.map((u) => `<option value="${u.id}"${u.id === E.sellerId ? " selected" : ""}>${esc(u.name)}${u.active ? "" : " (desativado)"}</option>`).join("")}</select><small>O consultor vê a proposta no acesso dele e assina o contrato como intermediador e testemunha.</small></label>` : `<p class="muted small" style="margin:0">Você fica como consultor desta proposta e assina o contrato como intermediador e testemunha.</p>`}
@@ -777,7 +776,7 @@
       if (!services.length) { R.toast("Marque pelo menos um serviço."); return; }
       const bad = services.find((s) => s.payment.some((o) => !(o.total > 0)));
       if (bad) { R.toast(`Confira os valores de ${bad.name}.`); return; }
-      const body = { client: E.client, title: E.title, message: E.message, validUntil: E.validUntil, folderId: E.folderId || null };
+      const body = { client: E.client, title: E.title, validUntil: E.validUntil, folderId: E.folderId || null };
       if (!E.locked) Object.assign(body, { services, country: E.country, lang: E.lang, currency: E.currency });
       if (isAdm()) body.sellerId = E.sellerId || null;
       busy(ev.currentTarget, true, "Salvando…");
@@ -1312,6 +1311,23 @@
   // assinatura padrão e galeria de trabalhos. Logos e imagens são salvos na hora; o resto no botão Salvar.
   const DEF_COLORS = { primary: "#3b63d9", accent: "#e07b39", dark: "#111318", light: "#f2f0ea" };
   const COLOR_LABEL = { primary: ["Cor principal", "Botões e destaques"], accent: ["Cor de destaque", "Títulos em destaque e detalhes"], dark: ["Fundo escuro", "Fundo das páginas e textos sobre fundo claro"], light: ["Fundo claro", "Textos sobre fundo escuro e áreas claras"] };
+  // Textos da página da proposta (Dados da empresa): o exemplo de cada campo é o texto padrão do sistema
+  const TX_LABEL = {
+    hero_label: "Etiqueta do topo", hero_blur: "Frase inicial", hero_sharp: "Final da frase, em destaque",
+    welcome: "Título das boas-vindas", team: "Frase de fechamento",
+    pick_label: "Etiqueta", pick_h: "Título", note_fixed: "Explicação ao lado do título",
+    steps_label: "Etiqueta", steps_h: "Título", steps_p: "Explicação", after_order: "Título dos próximos passos",
+    pf_label: "Etiqueta", pf_h: "Título", pf_p: "Explicação",
+    thanks: "Mensagem de agradecimento",
+    your_order: "Etiqueta", h_review: "Título", lead_review: "Explicação", fine: "Aviso abaixo do resumo", accept: "Frase de concordância (caixa de marcar)", send: "Texto do botão de enviar",
+    thanks_p: "Mensagem depois que o cliente envia o pedido", signed_p: "Mensagem depois que o contrato é assinado",
+  };
+  const txDefault = (k) => String((R.T_PT && R.T_PT[k]) || "").replace(/<em>(.*?)<\/em>|<strong>(.*?)<\/strong>/g, (m, x, y) => `*${x || y}*`).replace(/<br>/g, "\n").replace(/<[^>]+>/g, "").replace(/\{a\}/g, S.data.settings.agency.name || "sua empresa").replace(/\{d\}/g, "[data]").replace(/\{n\}/g, "");
+  function tx(k) {
+    const v = (S.data.settings.pageTexts || {})[k] || "", ph = txDefault(k), long = ph.length > 70 || ph.includes("\n");
+    return `<label class="fl"><span>${TX_LABEL[k]}</span>${long ? `<textarea class="ta" data-tx="${k}" rows="3" placeholder="${esc(ph)}">${esc(v)}</textarea>` : `<input class="inp" data-tx="${k}" value="${esc(v)}" placeholder="${esc(ph)}">`}</label>`;
+  }
+  const txGroup = (title, body, open) => `<details class="tx-group"${open ? " open" : ""}><summary>${title}</summary><div class="stack">${body}</div></details>`;
   function empresa() {
     const st = S.data.settings, a = st.agency, b = st.brand || {};
     if (!S.biz) S.biz = { colors: { ...DEF_COLORS, ...(b.colors || {}) }, fontTitle: b.fontTitle || "archivo", fontText: b.fontText || "alexandria" };
@@ -1338,13 +1354,20 @@
             <div class="grid3"><label class="fl"><span>WhatsApp</span><input class="inp" id="cWa" inputmode="tel" value="${esc(st.whatsapp || "")}" placeholder="5511999990000"></label><label class="fl"><span>Instagram</span><input class="inp" id="cIg" value="${esc(st.instagram || "")}" placeholder="@suaempresa"></label><label class="fl"><span>Site</span><input class="inp" id="cSite" value="${esc(st.site || "")}" placeholder="https://"></label></div>
             <p class="muted small" style="margin:0">Aparecem no rodapé das propostas e nos botões de WhatsApp. O WhatsApp também recebe os avisos de pedido e assinatura.</p>
           </div>
-          <div class="card"><h2>Textos da proposta</h2>
-            <label class="fl"><span>Slogan</span><input class="inp" id="bTag" maxlength="160" value="${esc(b.tagline || "")}" placeholder="Ex.: Fotografia de casamento em todo o Brasil"><small>Rodapé das páginas, dos e-mails e do PDF.</small></label>
-            <label class="fl"><span>Texto de apresentação</span><textarea class="ta" id="cIntro" rows="4">${esc(st.intro)}</textarea></label>
-            <label class="fl"><span>Quem somos</span><textarea class="ta" id="bAbout" rows="4">${esc(b.about || "")}</textarea></label>
+          <div class="card"><h2>Página da proposta</h2>
+            <p class="muted small" style="margin:0">Todos os textos que o cliente vê na proposta, na ordem da página. Campo em branco usa o texto de exemplo (que já tem versão em espanhol e inglês); o que você escrever aparece igual em todos os idiomas. Para destacar uma palavra, coloque entre asteriscos: *assim*.</p>
+            ${txGroup("Topo da página", tx("hero_label") + tx("hero_blur") + tx("hero_sharp"), true)}
+            ${txGroup("Boas-vindas", tx("welcome") + `<label class="fl"><span>Texto de apresentação</span><textarea class="ta" id="cIntro" rows="4">${esc(st.intro)}</textarea></label>
+            <label class="fl"><span>Quem somos</span><textarea class="ta" id="bAbout" rows="4">${esc(b.about || "")}</textarea></label>` + tx("team") + `
             <div class="grid2"><label class="fl"><span>Número em destaque</span><input class="inp" id="bStatV" maxlength="12" value="${esc(b.statValue || "")}" placeholder="Ex.: +10"></label><label class="fl"><span>Legenda do número</span><input class="inp" id="bStatL" maxlength="60" value="${esc(b.statLabel || "")}" placeholder="Ex.: anos de experiência"></label></div>
-            <label class="fl"><span>Como trabalhamos</span><textarea class="ta" id="bPrin" rows="4">${esc((b.principles || []).join("\n"))}</textarea><small>Uma frase por linha, até 6. Em branco, o bloco não aparece.</small></label>
-            <label class="fl"><span>Próximos passos</span><textarea class="ta" id="cNext" rows="5">${esc(stepsToText(st.nextSteps))}</textarea><small>Um passo por linha, no formato Título: explicação. Textos editados aparecem iguais em todos os idiomas; os padrão já têm tradução.</small></label>
+            <label class="fl"><span>Como trabalhamos</span><textarea class="ta" id="bPrin" rows="4">${esc((b.principles || []).join("\n"))}</textarea><small>Uma frase por linha, até 6. Em branco, o bloco não aparece.</small></label>`)}
+            ${txGroup("Serviços", tx("pick_label") + tx("pick_h") + tx("note_fixed"))}
+            ${txGroup("Etapas", tx("steps_label") + tx("steps_h") + tx("steps_p") + tx("after_order") + `<label class="fl"><span>Próximos passos</span><textarea class="ta" id="cNext" rows="5">${esc(stepsToText(st.nextSteps))}</textarea><small>Um passo por linha, no formato Título: explicação.</small></label>`)}
+            ${txGroup("Galeria de trabalhos", tx("pf_label") + tx("pf_h") + tx("pf_p"))}
+            ${txGroup("Agradecimento", tx("thanks"))}
+            ${txGroup("Pedido", tx("your_order") + tx("h_review") + tx("lead_review") + tx("fine") + tx("accept") + tx("send"))}
+            ${txGroup("Depois do pedido", tx("thanks_p") + tx("signed_p"))}
+            ${txGroup("Rodapé", `<label class="fl"><span>Slogan</span><input class="inp" id="bTag" maxlength="160" value="${esc(b.tagline || "")}" placeholder="Ex.: Fotografia de casamento em todo o Brasil"><small>Rodapé das páginas, dos e-mails e do PDF.</small></label>`)}
           </div>
           <div class="card"><div class="ch"><h2>Galeria de trabalhos</h2><label class="pill pill-cream pill-sm">Adicionar imagens<input type="file" accept="image/png,image/jpeg,image/webp" id="pfAdd" multiple hidden></label></div>
             <p class="muted small" style="margin:0">Aparece nas propostas quando tiver pelo menos uma imagem. As fotos são reduzidas para 1600 px antes de enviar.</p>
@@ -1476,7 +1499,7 @@
       const L = $$("[data-pf]").length ? pfList() : null;
       busy(e.currentTarget, true, "Salvando…");
       try {
-        await put("settings", { agency, brand, whatsapp: $("#cWa").value, instagram: $("#cIg").value, site: $("#cSite").value.trim(), intro: $("#cIntro").value.trim(), nextSteps: textToSteps($("#cNext").value) });
+        await put("settings", { agency, brand, whatsapp: $("#cWa").value, instagram: $("#cIg").value, site: $("#cSite").value.trim(), intro: $("#cIntro").value.trim(), nextSteps: textToSteps($("#cNext").value), pageTexts: Object.fromEntries($$("[data-tx]").map((i) => [i.dataset.tx, i.value.trim()])) });
         if (L) await put("brand-image", { portfolio: L });
         await reload(); S.biz = null; refreshBrandCss(); empresa(); R.toast("Dados da empresa salvos.");
       } catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
