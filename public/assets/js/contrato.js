@@ -70,7 +70,7 @@
       <section class="hero hero-flat wrap" id="inicio" style="padding-block:clamp(140px,16vw,200px) clamp(110px,12vw,150px)">
         <div class="inner hero-copy">
           <div class="hero-mark">
-            <span class="label">${R.STAR}${t("c_label", { n: esc(C.number) })}</span>
+            <span class="label">${t("c_label", { n: esc(C.number) })}</span>
             <h1 class="focus-title" id="heroTitle">${titleHTML()}</h1>
           </div>
           <p class="hero-sub" id="heroSub">${t(signed() ? "c_sub_ok" : "c_sub_wait", { n: esc(firstName(who)) })}</p>
@@ -116,16 +116,16 @@
     const el = $("#signInner");
     const ag = C.agency, wa = contactPhone();
     if (signed()) {
-      el.innerHTML = `<div><span class="label eyebrow">${R.STAR}${t("ok_eyebrow")}</span><h2>${t("ok_h")}</h2>
+      el.innerHTML = `<div><span class="label eyebrow">${t("ok_eyebrow")}</span><h2>${t("ok_h")}</h2>
         <p class="lead">${emailed ? t("ok_mailed", { e: esc(C.client.email || "") }) : ""}${t("ok_lead")}</p></div>
-        <div class="done-box"><span class="star" aria-hidden="true" style="width:34px;height:34px;color:var(--primary-glow)"></span><h3>${t("next_h")}</h3>
+        <div class="done-box"><h3>${t("next_h")}</h3>
           <p>${(ag.nextSteps || []).slice(2).map((s) => esc(s.text)).join(" ") || t("next_default")}</p>
           <div class="acts"><a class="pill pill-green pill-lg" href="${pdfUrl(true)}">${t("c_dl")}</a><a class="pill pill-line pill-lg" href="${R.wa(wa, t("wa_signed", { n: C.number }))}" target="_blank" rel="noopener">${t("talk_wa")}</a></div>
         </div>`;
       return;
     }
     const docDefault = br() ? (R.digits(C.client.doc).length === 11 ? C.client.doc : "") : "";
-    el.innerHTML = `<div><span class="label eyebrow">${R.STAR}${t("s_eyebrow")}</span><h2>${t("s_h")}</h2>
+    el.innerHTML = `<div><span class="label eyebrow">${t("s_eyebrow")}</span><h2>${t("s_h")}</h2>
         <p class="lead">${t("s_lead")}</p>
         <p class="fine" style="max-width:44ch;margin-top:22px">${t("s_legal")}</p></div>
       <form class="form" id="signForm" novalidate>

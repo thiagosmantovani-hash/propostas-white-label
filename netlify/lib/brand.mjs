@@ -17,6 +17,24 @@ export const BRAND_DEFAULTS = {
   portfolio: [], // [{ id, name, v }]
 };
 
+// Textos da página da proposta que a empresa pode trocar em Dados da empresa › Página da proposta.
+// Em branco, vale o texto padrão do sistema (já traduzido para espanhol e inglês).
+export const PAGE_TEXT_KEYS = [
+  "hero_label", "hero_blur", "hero_sharp", "welcome", "team",
+  "pick_label", "pick_h", "note_fixed", "steps_label", "steps_h", "steps_p", "after_order",
+  "pf_label", "pf_h", "pf_p", "thanks",
+  "your_order", "h_review", "lead_review", "fine", "accept", "send", "thanks_p", "signed_p",
+];
+export function cleanPageTexts(v) {
+  const out = {};
+  if (!v || typeof v !== "object") return out;
+  for (const k of PAGE_TEXT_KEYS) {
+    const x = String(v[k] ?? "").replace(/\r/g, "").replace(/[<>]/g, "").trim().slice(0, 600);
+    if (x) out[k] = x;
+  }
+  return out;
+}
+
 // Fontes disponíveis. "local" vem de /assets/fonts; "google" é carregada do Google Fonts; "system" é a do aparelho.
 export const FONTS = {
   alexandria: { label: "Alexandria", stack: '"Alexandria","Helvetica Neue",Arial,sans-serif', local: true },

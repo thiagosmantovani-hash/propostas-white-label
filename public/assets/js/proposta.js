@@ -39,7 +39,7 @@
         R.setLocale(e.data.lang || "pt", "BRL");
         R.setBrand({ name: e.data.name || "", whatsapp: e.data.whatsapp || "" });
         document.title = t("off_h") + (e.data.name ? " · " + e.data.name : "");
-        app.innerHTML = R.stateHTML(t("off_h"), esc(e.message), `<a class="pill pill-green pill-lg" href="${R.wa(e.data.whatsapp || "", t("wa_off", { n: e.data.number || "" }))}" target="_blank" rel="noopener">${t("off_talk")}</a>`);
+        app.innerHTML = R.stateHTML(t("off_h"), esc(e.message), `<a class="pill pill-green pill-lg" href="${R.wa(e.data.whatsapp || "", t("wa_off", { a: R.esc(e.data.name || "") }))}" target="_blank" rel="noopener">${t("off_talk")}</a>`);
         return;
       }
       try { R.setBrand(await R.api("public/brand" + R.ref())); } catch (e2) {}
@@ -49,7 +49,8 @@
     }
     R.setLocale(P.lang, P.currency);
     R.setBrand(P.agency);
-    document.title = (P.open ? t("hero_label") : `${t("hero_label_n", { n: P.number })}${P.client.company || P.client.name ? " · " + (P.client.company || P.client.name) : ""}`) + " · " + P.agency.name;
+    // o número da proposta é só para controle interno da empresa: o cliente não vê
+    document.title = `${t("hero_label")}${!P.open && (P.client.company || P.client.name) ? " · " + (P.client.company || P.client.name) : ""} · ${P.agency.name}`;
     initSelection();
     renderAll();
   }
@@ -116,7 +117,7 @@
       <section class="hero hero-flat wrap" id="inicio">
         <div class="inner hero-copy">
           <div class="hero-mark">
-            <span class="label">${R.STAR}${P.open ? t("hero_label") : t("hero_label_n", { n: esc(P.number) })}</span>
+            <span class="label">${t("hero_label")}</span>
             <h1 class="focus-title"><span class="blur">${t("hero_blur")}</span> <span class="sharp">${t("hero_sharp")}</span></h1>
           </div>
           <p class="hero-sub">${who ? `<b>${t("prepared", { w: esc(who) })}</b> ` : `<b>${esc(ag.name)}.</b> `}${P.open ? t("open_sub") : esc(P.title || "")}</p>
@@ -128,7 +129,6 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
 
       <section class="about wrap" id="boas-vindas">
         <div class="grain"></div>
-        ${P.message ? `<div class="msg-row"><span class="star" aria-hidden="true"></span><p class="msg-center">${esc(P.message)}</p></div>` : ""}
         <div class="inner">
           <h2>${t("welcome")}</h2>
           <div class="about-text">
@@ -173,7 +173,7 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
       </section>` : ""}
 
       <section class="statement wrap" aria-label="${t("thanks_aria")}">
-        <div class="inner"><p>${t("thanks")}</p><span class="star" aria-hidden="true"></span></div>
+        <div class="inner"><p>${t("thanks")}</p></div>
       </section>
 
       <section class="order wrap" id="pedido">
@@ -194,7 +194,7 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
       const io = new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle("on", e.isIntersecting)), { rootMargin: "-42% 0px -42% 0px" });
       $$(".logo-grid li").forEach((li) => io.observe(li));
     }
-    R.reveal([[".hero-mark .label", "up", 0, 0.05], [".hero-sub", "up", 0, 0.8], [".hero-meta", "up", 0, 0.95], [".hero-ctas", "up", 0, 1.05], [".msg-center", "up"], [".about h2", "up"], [".about-text", "left", 0, 0.1], [".stat", "right", 0, 0.15], [".principles li", "right", 0.08, 0.25], [".pick-head > *", "up", 0.1], [".svc-card", "up", 0.06], [".anc > div", "up", 0.12], [".journey-head > *", "up", 0.1], [".brands-head > *", "up", 0.1], [".logo-grid li", "zoom", 0.04], [".statement p", "left"], [".statement .star", "zoom", 0, 0.2]]);
+    R.reveal([[".hero-mark .label", "up", 0, 0.05], [".hero-sub", "up", 0, 0.8], [".hero-meta", "up", 0, 0.95], [".hero-ctas", "up", 0, 1.05], [".about h2", "up"], [".about-text", "left", 0, 0.1], [".stat", "right", 0, 0.15], [".principles li", "right", 0.08, 0.25], [".pick-head > *", "up", 0.1], [".svc-card", "up", 0.06], [".anc > div", "up", 0.12], [".journey-head > *", "up", 0.1], [".brands-head > *", "up", 0.1], [".logo-grid li", "zoom", 0.04], [".statement p", "left"]]);
     if (location.hash && location.hash.length > 1) { const tg = $(location.hash); if (tg) setTimeout(() => tg.scrollIntoView(), 60); }
   }
 
@@ -225,11 +225,11 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
     if (s.notes) facts.push(esc(s.notes));
     return `<article class="svc-card" data-id="${esc(s.id)}" data-group="${esc(inGroup ? s.group : "")}">
       <div class="info">
-        <div class="meta"><span class="label">${esc(s.category || t("service"))} · ${s.kind === "mensal" ? t("monthly") : t("once")}</span>${s.recommended && !fixed() ? `<span class="badge">${R.STAR}${t("recommended")}</span>` : ""}</div>
+        <div class="meta"><span class="label">${esc(s.category || t("service"))} · ${s.kind === "mensal" ? t("monthly") : t("once")}</span>${s.recommended && !fixed() ? `<span class="badge">${t("recommended")}</span>` : ""}</div>
         <h3>${esc(s.name)}</h3>
         ${s.tagline ? `<p class="tagline">${esc(s.tagline)}</p>` : ""}
         ${s.description ? String(s.description).split(/\n\s*\n/).map((x) => `<p class="desc">${esc(x.trim())}</p>`).join("") : ""}
-        ${facts.length ? `<div class="facts">${facts.map((f) => `<span>${R.STAR}${f}</span>`).join("")}</div>` : ""}
+        ${facts.length ? `<div class="facts">${facts.map((f) => `<span>${f}</span>`).join("")}</div>` : ""}
         ${s.includes && s.includes.length ? `<button type="button" class="inc-btn" aria-expanded="${openInc.has(s.id)}" aria-controls="inc-${esc(s.id)}">${t("included")}<i aria-hidden="true"></i></button>
         <div class="inc" id="inc-${esc(s.id)}"${openInc.has(s.id) ? "" : " hidden"}>${s.includes.map((g) => `<div>${g.title ? `<h4>${esc(g.title)}</h4>` : ""}<ul>${g.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}</div>` : ""}
       </div>
@@ -336,13 +336,13 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
     return `<ol class="track" aria-label="${t("tr_aria")}">${st.map(([x, k]) => `<li class="${k}"><b>${x}</b>${k === "done" ? t("tr_done") : k === "now" ? t("tr_now") : t("tr_next")}</li>`).join("")}</ol>`;
   }
 
-  const doneBox = (h, p, acts) => `<div class="done-box"><span class="star" aria-hidden="true" style="width:34px;height:34px;color:var(--primary-glow)"></span><h3>${h}</h3><p>${p}</p><div class="acts">${acts}</div></div>`;
+  const doneBox = (h, p, acts) => `<div class="done-box"><h3>${h}</h3><p>${p}</p><div class="acts">${acts}</div></div>`;
 
   function renderOrder() {
     const el = $("#orderInner");
     const received = P.order && !editing;
     const left = `<div>
-      <span class="label eyebrow">${R.STAR}${t("your_order")}</span>
+      <span class="label eyebrow">${t("your_order")}</span>
       <h2>${received ? t("h_received") : t("h_review")}</h2>
       <p class="lead">${received ? t("lead_received") : t("lead_review")}</p>
       ${summaryHTML()}
@@ -354,9 +354,9 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
     else if (c) right = doneBox(t("ready_h"), t("ready_p"), `<a class="pill pill-green pill-lg" href="/c/${esc(c.id)}">${t("read_sign")}</a>`);
     else if (received) {
       const nm = firstName(P.order.client.representative || P.order.client.name);
-      right = doneBox(t("thanks_h", { n: nm ? ", " + esc(nm) : "" }), t("thanks_p", { d: R.dateTime(P.order.submittedAt) }), `<a class="pill pill-green pill-lg" href="${R.wa(wa, t("wa_ordered", { n: P.number }))}" target="_blank" rel="noopener">${t("notify_wa")}</a><button type="button" class="pill pill-line pill-lg" data-act="edit">${t("edit_order")}</button>`);
-    } else if (P.status === "recusada" && !editing) right = doneBox(t("declined_h"), t("declined_p"), `<button type="button" class="pill pill-green pill-lg" data-act="edit">${t("review_again")}</button><a class="pill pill-line pill-lg" href="${R.wa(wa, t("wa_talk", { n: P.number }))}" target="_blank" rel="noopener">${t("talk_wa")}</a>`);
-    else if (P.expired && !P.order) right = doneBox(t("expired_h"), t("expired_p", { d: R.dateLong(P.validUntil) }), `<a class="pill pill-green pill-lg" href="${R.wa(wa, t("wa_expired", { n: P.number }))}" target="_blank" rel="noopener">${t("ask_update")}</a>`);
+      right = doneBox(t("thanks_h", { n: nm ? ", " + esc(nm) : "" }), t("thanks_p", { d: R.dateTime(P.order.submittedAt) }), `<a class="pill pill-green pill-lg" href="${R.wa(wa, t("wa_ordered"))}" target="_blank" rel="noopener">${t("notify_wa")}</a><button type="button" class="pill pill-line pill-lg" data-act="edit">${t("edit_order")}</button>`);
+    } else if (P.status === "recusada" && !editing) right = doneBox(t("declined_h"), t("declined_p"), `<button type="button" class="pill pill-green pill-lg" data-act="edit">${t("review_again")}</button><a class="pill pill-line pill-lg" href="${R.wa(wa, t("wa_talk"))}" target="_blank" rel="noopener">${t("talk_wa")}</a>`);
+    else if (P.expired && !P.order) right = doneBox(t("expired_h"), t("expired_p", { d: R.dateLong(P.validUntil) }), `<a class="pill pill-green pill-lg" href="${R.wa(wa, t("wa_expired"))}" target="_blank" rel="noopener">${t("ask_update")}</a>`);
     else right = formHTML();
     el.innerHTML = left + right;
     bindOrder();

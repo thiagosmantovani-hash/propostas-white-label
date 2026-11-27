@@ -11,7 +11,7 @@ import { waEnabled, sendWa, sendWaMany, waText, waLog } from "../lib/whatsapp.mj
 import { zipSync, strToU8 } from "fflate";
 import { demo_signature } from "../lib/brand/demo-signature.mjs";
 import { EXEMPLO_CATALOG } from "../lib/catalogo-exemplo.mjs";
-import { brand, brandOf, useBrand, brandCss, fontList, okColor, parseImage, getImage, putImage, delImage, BRAND_DEFAULTS } from "../lib/brand.mjs";
+import { brand, brandOf, useBrand, brandCss, fontList, okColor, parseImage, getImage, putImage, delImage, BRAND_DEFAULTS, cleanPageTexts } from "../lib/brand.mjs";
 import { emailEnabled, emailSender, notifyAddress, sendEmail, layout, esc, sentLog } from "../lib/email.mjs";
 import { adminConfigured, checkPassword, issueToken, session, hashPassword, verifyPassword, newPassword, pwMark } from "../lib/auth.mjs";
 import { json, fail, token, sha256, nowISO, todayBR, addDays, clean, onlyDigits, validDoc, fmtDoc, computeTotals, clientIP, money, dateLongL } from "../lib/util.mjs";
@@ -127,6 +127,7 @@ function agencyPublic(settings, lang = "pt") {
     intro: t.intro || settings.intro, nextSteps: t.nextSteps || settings.nextSteps,
     tagline: b.tagline, about: custom("about") ? b.about : "", statValue: b.statValue, statLabel: b.statLabel, principles: custom("principles") ? b.principles : null,
     logos: b.logos, portfolio: b.portfolio.map((x) => ({ id: x.id, name: x.name, v: x.v })),
+    texts: cleanPageTexts(settings.pageTexts),
   };
 }
 // proposta fora do ar: despublicada pelo painel ou vencida sem pedido
@@ -143,7 +144,7 @@ async function sellerPublic(id) {
 async function proposalPublic(p, settings, contract) {
   const lang = p.lang || "pt";
   return {
-    id: p.id, number: p.number, open: !!p.open, title: p.title, message: p.message, validUntil: p.validUntil, status: p.status, expired: isExpired(p),
+    id: p.id, open: !!p.open, title: p.title, validUntil: p.validUntil, status: p.status, expired: isExpired(p),
     lang, currency: p.currency || "BRL", country: p.country || "BR",
     client: { name: p.client?.name || "", company: p.client?.company || "", contact: p.client?.contact || "" },
     services: p.services,
@@ -266,7 +267,7 @@ async function publicRoutes(req, context, url, [kind, id, action]) {
     const preview = url.searchParams.get("preview") === "1" && url.searchParams.get("k") === previewKey(p.id);
     if (isOffline(p) && !preview) {
       const sl = p.sellerId ? await getUser(p.sellerId) : null;
-      return json({ error: T.offline, offline: true, number: p.number, lang: p.lang || "pt", whatsapp: (sl && sl.phone) || settings.whatsapp, name: settings.agency.name }, 410);
+      return json({ error: T.offline, offline: true, lang: p.lang || "pt", whatsapp: (sl && sl.phone) || settings.whatsapp, name: settings.agency.name }, 410);
     }
     if (m === "GET" && !action) {
       if (!preview) {
@@ -394,9 +395,9 @@ async function placeOrder(p, body, settings, req, context, opts = {}) {
     const origin0 = new URL(req.url).origin, lang = p.lang || "pt", mm0 = (v) => money(v, p.currency || "BRL", lang);
     const first = esc(String(client.representative || client.name).split(" ")[0]);
     const CF = {
-      pt: [`Recebemos seu pedido · proposta ${p.number}`, "Pedido recebido", `Olá, ${first}! Recebemos o seu pedido da proposta nº ${esc(p.number)}. Em breve enviamos o contrato para assinatura on-line.`, "Ver meu pedido", "Serviços escolhidos"],
-      es: [`Recibimos tu pedido · propuesta ${p.number}`, "Pedido recibido", `¡Hola, ${first}! Recibimos tu pedido de la propuesta nº ${esc(p.number)}. En breve te enviamos el contrato para firmar en línea.`, "Ver mi pedido", "Servicios elegidos"],
-      en: [`We received your order · proposal ${p.number}`, "Order received", `Hi ${first}! We received your order for proposal no. ${esc(p.number)}. We'll send you the agreement to sign online shortly.`, "View my order", "Chosen services"],
+      pt: [`Recebemos seu pedido · ${brand().name}`, "Pedido recebido", `Olá, ${first}! Recebemos o seu pedido pela proposta de ${esc(brand().name)}. Em breve enviamos o contrato para assinatura on-line.`, "Ver meu pedido", "Serviços escolhidos"],
+      es: [`Recibimos tu pedido · ${brand().name}`, "Pedido recibido", `¡Hola, ${first}! Recibimos tu pedido por la propuesta de ${esc(brand().name)}. En breve te enviamos el contrato para firmar en línea.`, "Ver mi pedido", "Servicios elegidos"],
+      en: [`We received your order · ${brand().name}`, "Order received", `Hi ${first}! We received your order through ${esc(brand().name)}'s proposal. We'll send you the agreement to sign online shortly.`, "View my order", "Chosen services"],
     }[lang] || null;
     if (CF) await sendEmail({ to: client.email, replyTo: seller?.email || undefined, subject: CF[0], html: layout(CF[1], `<p>${CF[2]}</p><p><b>${CF[4]}</b></p><ul>${totals.lines.map((l) => `<li>${esc(l.name)}: ${esc(l.optionLabel)} · ${esc(l.kind === "mensal" ? mm0(l.total) + ({ pt: "/mês", es: "/mes", en: "/mo" }[lang] || "") : mm0(l.total))}</li>`).join("")}</ul>`, { url: `${origin0}/p/${p.id}#pedido`, label: CF[3] }) });
   }
@@ -970,7 +971,7 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
         en: [`Commercial proposal · ${brand().name}`, "Your proposal is ready", `Hi${nm ? " " + nm : ""}! We've prepared ${esc(brand().name)}'s proposal for ${esc(p.client.name)}. At the link you can see the services, pick the options and send your order.`, "Open the proposal"],
       }[lang] || null;
       const seller = p.sellerId ? await getUser(p.sellerId) : null;
-      const r = await sendEmail({ to, replyTo: seller?.email || undefined, subject: E[0], html: layout(E[1], `<p>${E[2]}</p>${p.message ? `<p>${esc(p.message)}</p>` : ""}`, { url: link, label: E[3] }) });
+      const r = await sendEmail({ to, replyTo: seller?.email || undefined, subject: E[0], html: layout(E[1], `<p>${E[2]}</p>`, { url: link, label: E[3] }) });
       if (!r.sent) return fail(r.error ? `Não foi possível enviar: ${r.error}` : "Não foi possível enviar o e-mail.", 502);
       if (!p.client.email) p.client.email = to;
       if (!p.sentAt) p.sentAt = nowISO();
@@ -1256,6 +1257,7 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     if ("waClient" in b) cur.waClient = !!b.waClient;
     if ("waAgency" in b) cur.waAgency = !!b.waAgency;
     if ("intro" in b) cur.intro = clean(b.intro, 1500);
+    if ("pageTexts" in b) cur.pageTexts = cleanPageTexts(b.pageTexts);
     if ("nextSteps" in b && Array.isArray(b.nextSteps)) cur.nextSteps = b.nextSteps.slice(0, 6).map((x) => ({ title: clean(x.title, 60), text: clean(x.text, 400) })).filter((x) => x.title);
     // contrato da empresa (em português): null volta ao modelo genérico do sistema
     if ("contractText" in b) cur.contractText = b.contractText && String(b.contractText).trim() ? String(b.contractText).slice(0, 60000) : null;

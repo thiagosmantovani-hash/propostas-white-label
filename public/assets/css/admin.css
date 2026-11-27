@@ -267,3 +267,11 @@ code.pw{font-family:ui-monospace,Menlo,monospace;font-size:15px;background:color
 #loginLogo{min-height:26px}
 #loginLogo img{height:26px;width:auto}
 .form-msg.ok{color:var(--primary-glow)}
+/* grupos de textos da página da proposta (Dados da empresa) */
+.tx-group{border-top:1px solid var(--line-dark);padding-top:12px}
+.tx-group summary{cursor:pointer;font-weight:600;font-size:14.5px;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.tx-group summary::-webkit-details-marker{display:none}
+.tx-group summary::after{content:"+";font-weight:400;font-size:20px;line-height:1;color:var(--accent-soft)}
+.tx-group[open] summary::after{content:"−"}
+.tx-group>.stack{margin-top:14px}
+.tx-group .ta{min-height:72px}

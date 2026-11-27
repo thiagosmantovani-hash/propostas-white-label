@@ -75,10 +75,10 @@
   };
   R.validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
 
-  R.STAR = '<span class="star" aria-hidden="true"></span>';
-  R.SPIN = '<svg class="spin" viewBox="0 0 100 100" aria-hidden="true"><polygon fill="currentColor" points="50,0 58,9.79 69.13,3.81 72.78,15.91 85.36,14.64 84.09,27.22 96.19,30.87 90.21,42 100,50 90.21,58 96.19,69.13 84.09,72.78 85.36,85.36 72.78,84.09 69.13,96.19 58,90.21 50,100 42,90.21 30.87,96.19 27.22,84.09 14.64,85.36 15.91,72.78 3.81,69.13 9.79,58 0,50 9.79,42 3.81,30.87 15.91,27.22 14.64,14.64 27.22,15.91 30.87,3.81 42,9.79"/></svg>';
+  // indicador neutro de carregamento (círculo girando)
+  R.SPIN = '<svg class="spin" viewBox="0 0 50 50" aria-hidden="true"><circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="90 150"/></svg>';
 
-  R.stateHTML = (title, text, actions = "") => `<section class="state"><div class="box">${R.SPIN.replace('class="spin"', 'class="spin" style="animation:none;width:44px;height:44px"')}<h1>${title}</h1>${text ? `<p>${text}</p>` : ""}${actions ? `<div class="hero-ctas">${actions}</div>` : ""}</div></section>`;
+  R.stateHTML = (title, text, actions = "") => `<section class="state"><div class="box"><h1>${title}</h1>${text ? `<p>${text}</p>` : ""}${actions ? `<div class="hero-ctas">${actions}</div>` : ""}</div></section>`;
   R.loadingHTML = (txt) => `<section class="state"><div class="box">${R.SPIN}<p>${txt}</p></div></section>`;
 
   const T = (k, d) => (R.t ? R.t(k) : d);
@@ -119,58 +119,6 @@
     menu.addEventListener("click", (e) => { if (e.target.closest("a")) { menu.classList.remove("open"); tog.setAttribute("aria-expanded", false); onScroll(); } });
     window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
-  };
-
-  // Trilhas de luz do hero (mesmo efeito do site)
-  R.initTrails = (canvas) => {
-    if (!canvas) return;
-    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const tx = canvas.getContext("2d");
-    // tom das trilhas: matiz da cor de destaque (--accent)
-    const accentHue = (() => {
-      try {
-        const c = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
-        const m = c.match(/^#([0-9a-f]{6})$/i); if (!m) return 28;
-        const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
-        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return 28;
-        const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-        return (h * 60 + 360) % 360;
-      } catch (e) { return 28; }
-    })();
-    const seed = (n) => { const x = Math.sin(n * 9301 + 49297) * 233280; return x - Math.floor(x); };
-    let lines = [], tw, th, visible = true;
-    const setup = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      tw = canvas.clientWidth; th = canvas.clientHeight;
-      canvas.width = tw * dpr; canvas.height = th * dpr; tx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      lines = [];
-      const count = Math.round(tw / 14);
-      for (let i = 0; i < count; i++) {
-        const warm = seed(i + 311) > 0.28;
-        lines.push({ x: seed(i + 1) * tw, len: th * (0.25 + seed(i + 77) * 0.6), w: 0.6 + seed(i + 5) * 1.6, hue: warm ? accentHue - 10 + seed(i + 9) * 22 : 45, sat: warm ? 85 : 30, lit: warm ? 52 + seed(i + 3) * 14 : 88, a: 0.35 + seed(i + 13) * 0.6, ph: seed(i + 21) * 6.28 });
-      }
-    };
-    const draw = (t) => {
-      tx.clearRect(0, 0, tw, th);
-      for (const l of lines) {
-        const f = reduce ? 1 : 0.8 + 0.2 * Math.sin(t / 900 + l.ph);
-        const g = tx.createLinearGradient(0, 0, 0, l.len);
-        g.addColorStop(0, `hsla(${l.hue},${l.sat}%,${l.lit}%,0)`);
-        g.addColorStop(0.7, `hsla(${l.hue},${l.sat}%,${l.lit}%,${l.a * 0.55 * f})`);
-        g.addColorStop(1, `hsla(${l.hue},${l.sat}%,${Math.min(l.lit + 20, 96)}%,${l.a * f})`);
-        tx.strokeStyle = g; tx.lineWidth = l.w; tx.beginPath(); tx.moveTo(l.x, 0); tx.lineTo(l.x, l.len); tx.stroke();
-        tx.fillStyle = `hsla(${l.hue},${l.sat}%,${Math.min(l.lit + 25, 97)}%,${l.a * f})`;
-        tx.beginPath(); tx.arc(l.x, l.len, l.w * 1.3, 0, 6.283); tx.fill();
-      }
-      const v = tx.createRadialGradient(tw / 2, th * 0.45, th * 0.1, tw / 2, th * 0.45, Math.max(tw, th) * 0.7);
-      v.addColorStop(0, "rgba(5,5,5,.6)"); v.addColorStop(1, "rgba(5,5,5,0)");
-      tx.fillStyle = v; tx.fillRect(0, 0, tw, th);
-    };
-    const loop = (t) => { if (visible) draw(t); requestAnimationFrame(loop); };
-    setup(); draw(0);
-    if (!reduce) requestAnimationFrame(loop);
-    if ("IntersectionObserver" in window) new IntersectionObserver((e) => { visible = e[0].isIntersecting; }).observe(canvas);
-    let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { setup(); draw(0); }, 150); });
   };
 
   // Quadro de assinatura desenhada (mouse, dedo ou caneta). Exporta PNG transparente recortado.
