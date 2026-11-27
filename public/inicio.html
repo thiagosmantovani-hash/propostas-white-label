@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- O nome do produto ainda é provisório: troque "Fechaí" em todo este arquivo quando o nome final for escolhido. -->
+<title>Fechaí · Propostas e contratos para empresas e freelancers</title>
+<meta name="description" content="Monte propostas com a sua marca, envie por WhatsApp ou e-mail e feche o contrato com assinatura online. Para empresas e freelancers de qualquer tipo de serviço. Teste grátis.">
+<meta property="og:title" content="Fechaí · Propostas que viram contrato">
+<meta property="og:description" content="Monte propostas com a sua marca, o cliente escolhe pelo celular e assina o contrato online. Teste grátis.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#111318">
+<link rel="icon" type="image/svg+xml" href="/assets/icone.svg">
+<style>
+@font-face{font-family:"Alexandria";src:url(/assets/fonts/alexandria-latin-300-normal.woff2) format("woff2");font-weight:300;font-display:swap}
+@font-face{font-family:"Alexandria";src:url(/assets/fonts/alexandria-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Alexandria";src:url(/assets/fonts/alexandria-latin-500-normal.woff2) format("woff2");font-weight:500;font-display:swap}
+@font-face{font-family:"Alexandria";src:url(/assets/fonts/alexandria-latin-600-normal.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"Archivo";src:url(/assets/fonts/archivo-var.woff2) format("woff2-variations"),url(/assets/fonts/archivo-var.woff2) format("woff2");font-weight:100 900;font-stretch:62% 125%;font-display:swap}
+:root{
+  --ink:#111318;--ink-2:#1b1e27;--cream:#f2f0ea;--paper:#faf9f6;--primary:#3b63d9;--primary-soft:#e6ecfb;--accent:#e07b39;--accent-soft:#f3b88f;
+  --muted:#5d6270;--line:#e2e0da;--line-dark:rgba(242,240,234,.16);
+  --f-display:"Archivo","Arial Black","Helvetica Neue",Arial,sans-serif;--f-sans:"Alexandria","Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:76px;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f-sans);font-weight:300;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+h1,h2,h3{margin:0;font-family:var(--f-display);font-weight:700;line-height:1.08;text-wrap:balance;letter-spacing:-.01em}
+p{margin:0}ul,ol{margin:0;padding:0;list-style:none}a{color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.in{max-width:1160px;margin:0 auto;padding:0 clamp(16px,5vw,48px)}
+.eyebrow{display:inline-block;font-size:12px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--primary)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:14px 26px;font-size:15px;font-weight:500;text-decoration:none;border:1.5px solid transparent;transition:background .2s,color .2s,border-color .2s,transform .2s;white-space:nowrap;cursor:pointer}
+.btn:hover{transform:translateY(-1px)}
+.btn-main{background:var(--accent);color:#fff}
+.btn-main:hover{background:#c8672a}
+.btn-line{border-color:currentColor}
+.btn-line:hover{background:var(--cream);color:var(--ink);border-color:var(--cream)}
+.btn-sm{padding:9px 18px;font-size:14px}
+
+/* topo */
+.top{position:sticky;top:0;z-index:20;background:rgba(17,19,24,.92);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);color:var(--cream);border-bottom:1px solid var(--line-dark)}
+.top .in{display:flex;align-items:center;justify-content:space-between;gap:12px;height:64px}
+.logo{display:inline-flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--f-display);font-weight:800;font-size:21px;letter-spacing:-.02em}
+.logo svg{width:30px;height:30px;flex:none}
+.top nav{display:flex;align-items:center;gap:6px}
+.top nav .lk{text-decoration:none;font-size:14px;padding:8px 12px;opacity:.85}
+.top nav .lk:hover{opacity:1}
+@media (max-width:720px){.top nav .lk.hide-m{display:none}}
+
+/* abertura */
+.hero{background:var(--ink);color:var(--cream);position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:-30% -10% auto auto;width:70vw;height:70vw;max-width:820px;max-height:820px;border-radius:50%;background:radial-gradient(closest-side,rgba(59,99,217,.45),transparent);pointer-events:none}
+.hero .in{position:relative;display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(32px,5vw,72px);align-items:center;padding-top:clamp(48px,8vw,104px);padding-bottom:clamp(56px,8vw,112px)}
+.hero h1{font-size:clamp(38px,6.2vw,76px);margin-top:14px}
+.hero h1 em{font-style:normal;color:var(--accent-soft)}
+.hero .eyebrow{color:var(--accent-soft)}
+.hero .lead{margin-top:22px;font-size:clamp(17px,1.6vw,20px);max-width:36em;color:rgba(242,240,234,.82)}
+.hero .ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.hero .note{margin-top:16px;font-size:14px;color:rgba(242,240,234,.6)}
+@media (max-width:900px){.hero .in{grid-template-columns:1fr}}
+
+/* imitação de uma proposta no celular */
+.phone{justify-self:center;width:min(340px,100%);background:var(--paper);color:var(--ink);border-radius:30px;padding:14px;box-shadow:0 30px 80px rgba(0,0,0,.45),0 0 0 8px #2a2e39}
+.ph-head{background:var(--primary);color:#fff;border-radius:18px;padding:18px 18px 20px}
+.ph-head small{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+.ph-head b{display:block;font-family:var(--f-display);font-size:20px;margin-top:4px;line-height:1.15}
+.ph-list{padding:12px 4px 4px;display:grid;gap:8px}
+.ph-item{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:14px;background:#fff}
+.ph-item span{flex:1;line-height:1.3}
+.ph-item i{font-style:normal;font-weight:500;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tg{width:34px;height:20px;border-radius:99px;background:#d6d4cd;position:relative;flex:none}
+.tg::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff}
+.tg.on{background:var(--primary)}.tg.on::after{left:17px}
+.ph-total{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:12px 8px 4px;font-size:14px;color:var(--muted)}
+.ph-total b{font-family:var(--f-display);font-size:18px;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
+.ph-btn{margin:10px 4px 4px;background:var(--accent);color:#fff;border-radius:999px;text-align:center;padding:12px;font-weight:500;font-size:14px}
+
+/* seções */
+.sec{padding:clamp(64px,9vw,120px) 0}
+.sec.tight{padding-top:0}
+.sec-head{max-width:720px;margin-bottom:clamp(32px,5vw,56px)}
+.sec-head h2{font-size:clamp(30px,4.2vw,50px);margin-top:10px}
+.sec-head p{margin-top:16px;font-size:18px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+.chips li{border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 16px;font-size:15px}
+
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;counter-reset:s}
+.step{background:#fff;border:1px solid var(--line);border-radius:20px;padding:26px 22px;counter-increment:s}
+.step::before{content:counter(s);display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--primary-soft);color:var(--primary);font-family:var(--f-display);font-weight:800;font-size:18px;margin-bottom:18px}
+.step h3{font-size:20px}
+.step p{margin-top:10px;color:var(--muted);font-size:15px}
+@media (max-width:960px){.steps{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:560px){.steps{grid-template-columns:1fr}}
+
+.feat-bg{background:var(--cream)}
+.feats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.feat{background:var(--paper);border-radius:20px;padding:26px 24px}
+.feat svg{width:28px;height:28px;color:var(--accent)}
+.feat h3{font-size:19px;margin-top:16px}
+.feat p{margin-top:8px;color:var(--muted);font-size:15px}
+@media (max-width:960px){.feats{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:560px){.feats{grid-template-columns:1fr}}
+
+.price{display:grid;grid-template-columns:1fr 1fr;gap:clamp(24px,4vw,56px);align-items:center;background:var(--ink);color:var(--cream);border-radius:28px;padding:clamp(28px,5vw,56px)}
+.price .eyebrow{color:var(--accent-soft)}
+.price h2{font-size:clamp(30px,4vw,48px);margin-top:10px}
+.price h2 em{font-style:normal;color:var(--accent-soft)}
+.price p{margin-top:14px;color:rgba(242,240,234,.78);font-size:17px}
+.price ul{display:grid;gap:12px}
+.price li{display:flex;gap:12px;align-items:flex-start;font-size:16px}
+.price li::before{content:"";flex:none;width:20px;height:20px;margin-top:3px;border-radius:50%;background:var(--primary) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10.5l3 3 6-7' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/100% no-repeat}
+.price .ctas{margin-top:28px;display:flex;flex-wrap:wrap;gap:12px}
+@media (max-width:860px){.price{grid-template-columns:1fr}}
+
+.faq{max-width:820px}
+.faq details{border-bottom:1px solid var(--line);padding:4px 0}
+.faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:16px;padding:18px 0;font-weight:500;font-size:17px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";font-family:var(--f-display);font-size:24px;line-height:1;color:var(--primary);transition:transform .2s}
+.faq details[open] summary::after{transform:rotate(45deg)}
+.faq details p{padding:0 0 20px;color:var(--muted)}
+
+.end{background:var(--primary);color:#fff;text-align:center}
+.end h2{font-size:clamp(32px,5vw,58px)}
+.end p{margin:16px auto 0;max-width:34em;font-size:18px;opacity:.88}
+.end .ctas{margin-top:30px;display:flex;justify-content:center;flex-wrap:wrap;gap:12px}
+.end .btn-line:hover{color:var(--primary)}
+
+footer{background:var(--ink);color:rgba(242,240,234,.7);font-size:14px;padding:36px 0 calc(36px + env(safe-area-inset-bottom,0px))}
+footer .in{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;align-items:center}
+footer .logo{color:var(--cream);font-size:18px}
+footer .logo svg{width:24px;height:24px}
+footer a{color:var(--cream)}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="in">
+    <a class="logo" href="/" aria-label="Fechaí, página inicial">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#3b63d9"/><path d="M20 14h17l9 9v27a2 2 0 0 1-2 2H20a2 2 0 0 1-2-2V16a2 2 0 0 1 2-2z" fill="none" stroke="#fff" stroke-width="3.5" stroke-linejoin="round"/><path d="M36 14v10h10M25 36l5 5 9-10" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      Fechaí
+    </a>
+    <nav aria-label="Principal">
+      <a class="lk hide-m" href="#como-funciona">Como funciona</a>
+      <a class="lk hide-m" href="#perguntas">Dúvidas</a>
+      <a class="lk" href="/admin">Entrar</a>
+      <a class="btn btn-main btn-sm" href="/admin#/criar-conta">Criar conta</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="in">
+    <div>
+      <span class="eyebrow">Para empresas e freelancers</span>
+      <h1>Propostas que viram <em>contrato assinado.</em></h1>
+      <p class="lead">Monte a proposta com a sua marca, mande o link por WhatsApp ou e-mail, e o cliente escolhe os serviços, aprova e assina o contrato pelo celular. Tudo num lugar só, sem papel e sem planilha.</p>
+      <div class="ctas">
+        <a class="btn btn-main" href="/admin#/criar-conta">Começar grátis</a>
+        <a class="btn btn-line" href="#como-funciona">Ver como funciona</a>
+      </div>
+      <p class="note">Sem cartão de crédito. Funciona no navegador do computador e do celular.</p>
+    </div>
+    <div class="phone" role="img" aria-label="Exemplo de proposta aberta no celular do cliente">
+      <div class="ph-head"><small>Proposta para</small><b>Clínica Bem Estar</b></div>
+      <div class="ph-list">
+        <div class="ph-item"><span>Projeto completo</span><i>R$ 4.800</i><b class="tg on"></b></div>
+        <div class="ph-item"><span>Acompanhamento mensal</span><i>R$ 900/mês</i><b class="tg on"></b></div>
+        <div class="ph-item"><span>Treinamento da equipe</span><i>R$ 650</i><b class="tg"></b></div>
+      </div>
+      <div class="ph-total">Total <b>R$ 4.800 + R$ 900/mês</b></div>
+      <div class="ph-btn">Aprovar e ir para o contrato</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="in">
+    <div class="sec-head">
+      <span class="eyebrow">Para quem é</span>
+      <h2>Feito para quem vende serviço</h2>
+      <p>Não importa a sua área. Se você manda orçamento e precisa de contrato, o Fechaí deixa isso mais rápido e com cara profissional.</p>
+    </div>
+    <ul class="chips">
+      <li>Fotografia e vídeo</li><li>Arquitetura e interiores</li><li>Consultoria</li><li>Marketing e redes sociais</li><li>Design</li><li>Eventos e festas</li><li>Reformas e manutenção</li><li>Tecnologia e sites</li><li>Contabilidade</li><li>Aulas e treinamentos</li><li>Saúde e bem-estar</li><li>Limpeza e serviços gerais</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec tight" id="como-funciona">
+  <div class="in">
+    <div class="sec-head">
+      <span class="eyebrow">Como funciona</span>
+      <h2>Do orçamento ao contrato em 4 passos</h2>
+    </div>
+    <ol class="steps">
+      <li class="step"><h3>Cadastre seus serviços</h3><p>Coloque nome, descrição, prazo e valores uma vez só. Depois é só escolher na hora de montar.</p></li>
+      <li class="step"><h3>Monte e envie a proposta</h3><p>Escolha os serviços, ajuste valores e formas de pagamento e mande o link por WhatsApp, e-mail ou como preferir.</p></li>
+      <li class="step"><h3>O cliente escolhe e aprova</h3><p>Ele abre no celular, marca o que quer, vê o total na hora e envia o pedido com os dados para o contrato.</p></li>
+      <li class="step"><h3>O contrato é assinado online</h3><p>O pedido vira contrato preenchido. Você assina, o cliente assina na tela e os dois recebem o PDF.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="sec feat-bg">
+  <div class="in">
+    <div class="sec-head">
+      <span class="eyebrow">O que vem junto</span>
+      <h2>Tudo o que você precisa para fechar mais</h2>
+    </div>
+    <div class="feats">
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17.5" cy="15.5" r="2.5"/><path d="M12 21a9 9 0 1 1 9-9c0 1.7-1.3 3-3 3"/></svg><h3>Com a sua marca</h3><p>Seu logo, suas cores e seus textos. O cliente vê a sua empresa, não a nossa.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><h3>Contrato pronto ou o seu</h3><p>Use o modelo de contrato que já vem no sistema ou envie o seu em Word ou PDF. Os dados do cliente entram sozinhos.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17c3 0 4-6 7-6s2 6 5 6 3-3 6-3"/><path d="M3 21h18"/></svg><h3>Assinatura pelo celular</h3><p>O cliente assina desenhando na tela. O PDF sai com as duas assinaturas e o registro de data, hora e aparelho.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><h3>Saiba quando o cliente abriu</h3><p>Acompanhe quantas vezes cada proposta foi vista e em que etapa ela está.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 5.5 4.8"/></svg><h3>Equipe de vendas</h3><p>Cadastre vendedores. Cada um vê só as próprias propostas e você acompanha tudo.</p></div>
+      <div class="feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><h3>Clientes de fora do Brasil</h3><p>Propostas e contratos em português, espanhol ou inglês, com a moeda do cliente.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="in">
+    <div class="price">
+      <div>
+        <span class="eyebrow">Quanto custa</span>
+        <h2>Comece <em>grátis.</em></h2>
+        <p>Estamos em fase de lançamento. Crie a sua conta, cadastre seus serviços e mande as primeiras propostas sem pagar nada.</p>
+        <div class="ctas"><a class="btn btn-main" href="/admin#/criar-conta">Criar minha conta grátis</a></div>
+      </div>
+      <ul>
+        <li>Propostas com a sua marca</li>
+        <li>Contrato e assinatura online</li>
+        <li>Envio por WhatsApp e e-mail</li>
+        <li>Vendedores na mesma conta</li>
+        <li>Sem cartão de crédito para começar</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="sec tight" id="perguntas">
+  <div class="in">
+    <div class="sec-head">
+      <span class="eyebrow">Dúvidas</span>
+      <h2>Perguntas frequentes</h2>
+    </div>
+    <div class="faq">
+      <details><summary>Preciso instalar alguma coisa?</summary><p>Não. O Fechaí funciona no navegador, no computador ou no celular. É só criar a conta e entrar.</p></details>
+      <details><summary>O meu cliente precisa criar conta?</summary><p>Não. Ele recebe um link, abre no celular ou no computador, escolhe os serviços e assina. Sem cadastro e sem senha.</p></details>
+      <details><summary>Sou freelancer, sem CNPJ. Posso usar?</summary><p>Pode. No cadastro da empresa você coloca o seu nome completo e CPF, e o contrato sai no seu nome.</p></details>
+      <details><summary>Posso usar o meu próprio contrato?</summary><p>Pode. Envie o seu contrato em Word, PDF ou cole o texto. O sistema preenche os dados do cliente, dos serviços e dos valores. Se preferir, use o modelo que já vem pronto.</p></details>
+      <details><summary>Como fica a assinatura do contrato?</summary><p>Você e o cliente assinam desenhando na tela. O PDF final traz as duas assinaturas e um registro com data, hora, IP, navegador e um código que comprova que o texto não foi alterado.</p></details>
+      <details><summary>Os meus dados ficam separados dos de outras empresas?</summary><p>Sim. Cada conta tem os seus próprios clientes, propostas, contratos e serviços. Ninguém de outra empresa consegue ver.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="sec end">
+  <div class="in">
+    <h2>Mande a sua próxima proposta pelo Fechaí</h2>
+    <p>Crie a conta em menos de um minuto e veja como fica a sua primeira proposta.</p>
+    <div class="ctas">
+      <a class="btn btn-main" href="/admin#/criar-conta">Começar grátis</a>
+      <a class="btn btn-line" href="/admin">Já tenho conta</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="in">
+    <a class="logo" href="/"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#3b63d9"/><path d="M20 14h17l9 9v27a2 2 0 0 1-2 2H20a2 2 0 0 1-2-2V16a2 2 0 0 1 2-2z" fill="none" stroke="#fff" stroke-width="3.5" stroke-linejoin="round"/><path d="M36 14v10h10M25 36l5 5 9-10" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>Fechaí</a>
+    <p>Recebeu um link de proposta ou de contrato? Abra direto pela mensagem que você recebeu.</p>
+    <p><a href="/admin">Entrar</a> · <a href="/admin#/criar-conta">Criar conta</a></p>
+  </div>
+</footer>
+</body>
+</html>
