@@ -11,7 +11,8 @@ const resendOn = () => !!(env("RESEND_API_KEY") && env("EMAIL_FROM"));
 const testOn = () => env("EMAIL_TEST") === "1";
 export const emailEnabled = () => gmailOn() || resendOn() || testOn();
 export const emailSender = () => (gmailOn() ? env("GMAIL_USER") : resendOn() ? env("EMAIL_FROM") : "");
-export const notifyAddress = (settings) => env("NOTIFY_EMAIL") || env("GMAIL_USER") || settings?.agency?.email || "";
+// avisos internos vão para o e-mail da própria empresa (Dados da empresa); o remetente do sistema é só quem envia
+export const notifyAddress = (settings) => settings?.agency?.email || "";
 export const sentLog = [];
 let transport = null;
 
@@ -37,7 +38,7 @@ const fromName = () => String(brand().emailFromName || brand().name).replace(/["
 export async function sendEmail({ to, subject, html, attachments, replyTo }) {
   if (!emailEnabled() || !to || (Array.isArray(to) && !to.length)) return { sent: false, reason: "disabled" };
   const list = [...new Set((Array.isArray(to) ? to : [to]).filter(Boolean))];
-  if (testOn() && !gmailOn() && !resendOn()) { sentLog.push({ to: list, subject, attachments: (attachments || []).map((a) => a.filename) }); return { sent: true }; }
+  if (testOn() && !gmailOn() && !resendOn()) { sentLog.push({ to: list, subject, html, attachments: (attachments || []).map((a) => a.filename) }); return { sent: true }; }
   if (gmailOn()) {
     try {
       transport ||= nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user: env("GMAIL_USER"), pass: String(env("GMAIL_APP_PASSWORD")).replace(/\s+/g, "") } });

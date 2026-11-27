@@ -1,6 +1,8 @@
 // Acesso ao painel.
-// Administrador: senha na variável ADMIN_PASSWORD. Consultores: e-mail e senha cadastrados pelo administrador.
-// Sessão assinada com HMAC (30 dias) contendo o papel e, para consultores, o id.
+// Dono do sistema (superadmin): senha na variável ADMIN_PASSWORD.
+// Cada empresa: o responsável cria a conta com e-mail e senha (papel "admin" da empresa) e cadastra os consultores ("seller").
+// Sessão assinada com HMAC (30 dias) contendo o papel, a empresa (cid), o usuário (uid) e uma marca da senha (pv),
+// para que trocar a senha encerre os acessos abertos com a senha antiga.
 import crypto from "node:crypto";
 import { env } from "./store.mjs";
 
@@ -38,14 +40,18 @@ export function newPassword() {
   return `${pick(A, 2)}${pick(d, 2)}-${pick(a, 6)}`;
 }
 
+// marca curta da senha atual (muda quando a senha muda)
+export const pwMark = (u) => (u && u.salt ? crypto.createHash("sha256").update(u.salt + u.hash).digest("base64url").slice(0, 10) : "");
+
+const ROLES = ["super", "admin", "seller"];
 export function issueToken(session = { role: "admin" }) {
   const key = secret();
-  const payload = Buffer.from(JSON.stringify({ exp: Date.now() + DAYS * 864e5, role: session.role, uid: session.uid || null })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ exp: Date.now() + DAYS * 864e5, role: session.role, cid: session.cid || null, uid: session.uid || null, pv: session.pv || "", su: !!session.su })).toString("base64url");
   const sig = crypto.createHmac("sha256", key).update(payload).digest("base64url");
   return payload + "." + sig;
 }
 
-// Devolve {role, uid} ou null
+// Devolve {role, cid, uid, pv, su} ou null (su: dono do sistema vendo o painel de uma empresa)
 export function session(req) {
   const key = secret();
   if (!key) return null;
@@ -58,6 +64,7 @@ export function session(req) {
   try {
     const p = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (!(p.exp > Date.now())) return null;
-    return { role: p.role === "seller" ? "seller" : "admin", uid: p.uid || null };
+    if (!ROLES.includes(p.role)) return null;
+    return { role: p.role, cid: p.cid || null, uid: p.uid || null, pv: p.pv || "", su: !!p.su };
   } catch { return null; }
 }

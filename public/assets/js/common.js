@@ -16,11 +16,15 @@
 
   // Marca da empresa (Dados da empresa), recebida da API junto com a proposta ou o contrato
   R.B = { name: "", logos: {} };
+  // empresa da página: vem com a marca (R.B.e); no link aberto, também pelo ?e= do endereço
+  R.E = new URLSearchParams(location.search).get("e") || "";
+  R.ref = () => "?ref=" + encodeURIComponent(location.pathname + location.search);
+  R.imgQ = (v) => `?e=${encodeURIComponent(R.B.e || R.E)}&v=${encodeURIComponent(v || "")}`;
   R.setBrand = (ag) => { R.B = { logos: {}, ...(ag || {}) }; };
   // logo "escuro" vai sobre fundo escuro; "claro" sobre fundo claro. Sem imagem, o nome vira o logo.
   R.logoHTML = (kind) => {
     const v = R.B.logos && R.B.logos[kind];
-    return v ? `<img src="/api/public/logo/${kind}?v=${encodeURIComponent(v)}" alt="${R.esc(R.B.name)}">` : `<span class="wordmark">${R.esc(R.B.name)}</span>`;
+    return v ? `<img src="/api/public/logo/${kind}${R.imgQ(v)}" alt="${R.esc(R.B.name)}">` : `<span class="wordmark">${R.esc(R.B.name)}</span>`;
   };
   R.store = {
     get(k, d) { try { const v = localStorage.getItem("rp." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },

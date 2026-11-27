@@ -23,16 +23,22 @@
   /* ---------- API ---------- */
   async function api(path, opts = {}) {
     const r = await fetch("/api/admin/" + path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + S.token, ...(opts.headers || {}) } });
-    if (r.status === 401 && path !== "login") { logout(); throw new Error("Sessão expirada. Entre de novo."); }
     let d = null;
     try { d = await r.json(); } catch (e) {}
+    if (r.status === 401) { const msg = (d && d.error) || "Sessão expirada. Entre de novo."; logout(msg); throw new Error(msg); }
     if (!r.ok) throw new Error((d && d.error) || "Não foi possível falar com o servidor.");
     return d;
   }
   const post = (p, body) => api(p, { method: "POST", body: JSON.stringify(body || {}) });
   const put = (p, body) => api(p, { method: "PUT", body: JSON.stringify(body || {}) });
-  async function reload() { S.data = await api("bootstrap"); const st = S.data.settings; R.setBrand({ ...st.agency, whatsapp: st.whatsapp, logos: (st.brand && st.brand.logos) || {} }); }
-  function logout() { S.token = ""; S.data = null; R.store.set("adm", ""); login(); }
+  async function reload() {
+    S.data = await api("bootstrap");
+    if (S.data.role === "super") return;
+    const st = S.data.settings;
+    R.store.set("empresa", S.data.company.id);
+    R.setBrand({ ...st.agency, e: S.data.company.id, whatsapp: st.whatsapp, logos: (st.brand && st.brand.logos) || {} });
+  }
+  function logout(msg) { S.token = ""; S.data = null; R.store.set("adm", ""); R.store.set("admSuper", ""); R.store.set("empresa", ""); R.setBrand({}); if (location.hash && !/^#\/?$/.test(location.hash)) history.replaceState(null, "", "#/"); login("entrar", typeof msg === "string" ? msg : ""); }
 
   async function copy(text, ok = "Link copiado.") {
     try { await navigator.clipboard.writeText(text); R.toast(ok); }
@@ -79,46 +85,175 @@
     busy(btn, false);
   }
 
-  /* ---------- login ---------- */
-  function login() {
-    const sel = S.loginAs === "seller";
+  /* ---------- entrar, criar conta e nova senha ---------- */
+  // modos: entrar | criar | esqueci | dono (dono do sistema) | nova (link de nova senha)
+  function login(mode, msg) {
+    mode = mode || "entrar";
+    const resetTok = mode === "nova" ? (location.hash.match(/^#\/nova-senha\/([\w-]+)/) || [])[1] || "" : "";
+    const tabs = mode === "entrar" || mode === "criar";
+    const H = {
+      entrar: ["Acesso ao painel", "Entrar"],
+      criar: ["Comece agora", "Criar conta"],
+      esqueci: ["Esqueci minha senha", "Nova senha"],
+      dono: ["Dono do sistema", "Painel do dono"],
+      nova: ["Nova senha", "Criar nova senha"],
+    }[mode] || ["", ""];
+    const fld = (id, label, type, ac, extra = "") => `<div class="field"><label for="${id}">${label}</label><input id="${id}" type="${type}" autocomplete="${ac}" required${extra}></div>`;
+    const body = {
+      entrar: fld("em", "E-mail", "email", "username") + fld("pw", "Senha", "password", "current-password"),
+      criar: fld("nm", "Seu nome", "text", "name", ' maxlength="120"') + fld("co", "Nome da empresa (ou o seu, se for freelancer)", "text", "organization", ' maxlength="120"') + fld("em", "E-mail", "email", "username") + fld("pw", "Senha (mínimo 8 caracteres)", "password", "new-password", ' minlength="8"') +
+        '<div style="position:absolute;left:-9999px" aria-hidden="true"><label>Site <input id="ws" tabindex="-1" autocomplete="off"></label></div>',
+      esqueci: '<p class="muted small" style="margin:0">Informe o e-mail de acesso. Se ele estiver cadastrado, você recebe um link para criar uma senha nova.</p>' + fld("em", "E-mail", "email", "username"),
+      dono: fld("pw", "Senha do dono do sistema", "password", "current-password"),
+      nova: fld("pw", "Nova senha (mínimo 8 caracteres)", "password", "new-password", ' minlength="8"'),
+    }[mode];
+    const btn = { entrar: "Entrar", criar: "Criar minha conta", esqueci: "Enviar link", dono: "Entrar", nova: "Salvar e entrar" }[mode];
+    const foot = {
+      entrar: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="esqueci">Esqueci minha senha</button></p>',
+      criar: '<p class="muted small" style="margin:0">Cada conta tem o seu próprio painel: propostas, contratos, clientes e equipe só da sua empresa.</p>',
+      esqueci: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
+      dono: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
+      nova: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
+    }[mode];
     app.innerHTML = `<section class="login">
-      <form id="loginForm" novalidate><div id="loginLogo">${R.logoHTML("escuro")}</div>
-        <div><span class="label" style="color:var(--primary-glow)">Acesso da equipe</span><h1 style="margin-top:10px">Painel de propostas</h1></div>
-        <div class="seg" role="tablist" aria-label="Tipo de acesso"><button type="button" role="tab" data-as="admin" aria-selected="${!sel}" class="${sel ? "" : "on"}">Administrador</button><button type="button" role="tab" data-as="seller" aria-selected="${sel}" class="${sel ? "on" : ""}">Consultor</button></div>
-        ${sel ? `<div class="field"><label for="em">E-mail</label><input id="em" type="email" autocomplete="username" required></div>` : ""}
-        <div class="field"><label for="pw">Senha</label><input id="pw" type="password" autocomplete="current-password" required></div>
-        <p class="form-msg" id="lmsg" role="alert" style="margin:0"></p>
-        <button class="pill pill-green pill-lg" type="submit">Entrar</button>
-        ${sel ? '<p class="muted small" style="margin:0">Não tem acesso ou esqueceu a senha? Peça ao administrador.</p>' : ""}</form></section>`;
-    ($("#em") || $("#pw")).focus();
-    if (!R.B.name) R.api("public/brand").then((b) => { R.setBrand(b); const l = $("#loginLogo"); if (l) l.innerHTML = R.logoHTML("escuro"); }).catch(() => {});
-    $$("[data-as]").forEach((b) => b.addEventListener("click", () => { S.loginAs = b.dataset.as; R.store.set("admAs", S.loginAs); login(); }));
+      <form id="loginForm" novalidate><div id="loginLogo"><span class="wordmark">Propostas</span></div>
+        <div><span class="label" style="color:var(--primary-glow)">${H[0]}</span><h1 style="margin-top:10px">${H[1]}</h1></div>
+        ${tabs ? `<div class="seg" role="tablist" aria-label="Entrar ou criar conta"><button type="button" role="tab" data-mode="entrar" aria-selected="${mode === "entrar"}" class="${mode === "entrar" ? "on" : ""}">Entrar</button><button type="button" role="tab" data-mode="criar" aria-selected="${mode === "criar"}" class="${mode === "criar" ? "on" : ""}">Criar conta</button></div>` : ""}
+        ${body}
+        <p class="form-msg" id="lmsg" role="alert" style="margin:0">${esc(msg || "")}</p>
+        <button class="pill pill-green pill-lg" type="submit">${btn}</button>
+        ${foot}
+        ${mode === "entrar" ? '<p class="muted small" style="margin:0;opacity:.7"><button type="button" class="link-btn" data-mode="dono">Acesso do dono do sistema</button></p>' : ""}</form></section>`;
+    const f0 = $("#loginForm input:not([tabindex='-1'])"); if (f0) f0.focus();
+    $$("[data-mode]").forEach((b) => b.addEventListener("click", () => { if (mode === "nova") history.replaceState(null, "", "#/"); login(b.dataset.mode); }));
     $("#loginForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const b = e.target.querySelector("button[type=submit]"); busy(b, true, "Entrando…");
+      const b = e.target.querySelector("button[type=submit]");
+      const val = (id) => ($("#" + id) ? $("#" + id).value.trim() : "");
+      const pw = $("#pw") ? $("#pw").value : "";
+      const out = $("#lmsg");
+      let path, payload;
+      if (mode === "entrar") { path = "login"; payload = { email: val("em"), password: pw }; if (!payload.email) { out.textContent = "Informe o e-mail."; return; } }
+      else if (mode === "dono") { path = "login"; payload = { password: pw }; }
+      else if (mode === "criar") {
+        path = "signup"; payload = { name: val("nm"), company: val("co"), email: val("em"), password: pw, website: val("ws") };
+        if (payload.name.length < 3) { out.textContent = "Informe o seu nome."; return; }
+        if (payload.company.length < 2) { out.textContent = "Informe o nome da empresa."; return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(payload.email)) { out.textContent = "Informe um e-mail válido."; return; }
+        if (pw.length < 8) { out.textContent = "A senha precisa de pelo menos 8 caracteres."; return; }
+      } else if (mode === "esqueci") { path = "forgot"; payload = { email: val("em") }; }
+      else { path = "reset"; payload = { token: resetTok, password: pw }; if (pw.length < 8) { out.textContent = "A senha precisa de pelo menos 8 caracteres."; return; } }
+      busy(b, true, "Aguarde…");
       try {
-        const body = { password: $("#pw").value };
-        if ($("#em")) body.email = $("#em").value.trim();
-        const r = await fetch("/api/admin/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const r = await fetch("/api/admin/" + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "Não foi possível entrar.");
-        S.token = d.token; R.store.set("adm", d.token);
+        if (!r.ok) throw new Error(d.error || "Não foi possível concluir agora.");
+        if (mode === "esqueci") {
+          busy(b, false);
+          out.className = "form-msg ok";
+          out.textContent = d.emailEnabled === false ? "O envio de e-mail ainda não está ativo no sistema. Fale com o suporte para receber uma senha nova." : "Pronto. Se o e-mail estiver cadastrado, o link chega em alguns minutos (confira também o spam).";
+          return;
+        }
+        S.token = d.token; R.store.set("adm", d.token); R.store.set("admSuper", "");
+        R.store.set("empresa", d.company || "");
+        if (mode === "nova" || mode === "criar") history.replaceState(null, "", mode === "criar" ? "#/empresa" : "#/");
         await start();
-      } catch (err) { $("#lmsg").textContent = err.message; busy(b, false); }
+        if (mode === "criar") R.toast("Conta criada. Comece pelos dados da sua empresa.");
+      } catch (err) { out.className = "form-msg"; out.textContent = err.message; busy(b, false); }
+    });
+  }
+
+  /* ---------- painel do dono do sistema ---------- */
+  function superPanel() {
+    const cs = S.data.companies || [];
+    const dt = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "");
+    app.innerHTML = `<header class="adm-top wrap"><div class="inner">
+        <a class="brand" href="#/"><span class="wordmark">Painel do dono</span></a><span class="tag">Dono do sistema</span>
+        <nav><button class="pill pill-line" type="button" id="logout">Sair</button></nav>
+      </div></header><main class="adm-main wrap"><div class="inner">
+      <div class="pgh"><div><span class="label">Sistema</span><h1>Empresas cadastradas</h1><p class="sub">Cada empresa ou freelancer cria a conta sozinho em ${esc(location.host)}/admin e só enxerga os próprios dados. Aqui você acompanha todas, bloqueia ou libera o acesso e entra no painel de qualquer uma para dar suporte.</p></div></div>
+      <div class="tiles" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:24px"><div class="tile"><span>Empresas</span><b>${cs.length}</b></div><div class="tile"><span>Ativas</span><b>${cs.filter((c) => !c.blocked).length}</b></div><div class="tile"><span>Propostas no total</span><b>${cs.reduce((a, c) => a + c.proposals, 0)}</b></div></div>
+      ${S.data.emailEnabled ? "" : '<div class="warnbox"><span>O envio de e-mail do sistema não está ativo, então o “Esqueci minha senha” não manda o link. Quando alguém pedir, use “Nova senha” na linha da empresa.</span></div>'}
+      <div id="supOut"></div>
+      ${cs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Empresa</th><th>Responsável</th><th>Criada em</th><th>Propostas</th><th>Consultores</th><th>Situação</th><th class="r">Ações</th></tr></thead><tbody>
+        ${cs.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.owner.name)}<br><span class="muted small">${esc(c.owner.email)}</span></td><td>${dt(c.createdAt)}</td><td>${c.proposals}</td><td>${c.sellers}</td><td><span class="st ${c.blocked ? "recusada" : "assinada"}">${c.blocked ? "Bloqueada" : "Ativa"}</span></td>
+          <td class="r"><div class="row-acts" style="justify-content:flex-end"><button type="button" class="pill pill-green pill-sm" data-enter="${esc(c.id)}">Entrar no painel</button><button type="button" class="pill pill-line pill-sm" data-reset="${esc(c.id)}">Nova senha</button><button type="button" class="pill ${c.blocked ? "pill-cream" : "pill-line"} pill-sm" data-block="${esc(c.id)}" data-on="${c.blocked ? 0 : 1}">${c.blocked ? "Liberar" : "Bloquear"}</button></div></td></tr>`).join("")}
+      </tbody></table></div>` : '<div class="card"><div class="empty"><b>Nenhuma empresa ainda</b><span>Quando alguém criar a conta em Criar conta, ela aparece aqui.</span></div></div>'}
+      </div></main>`;
+    $("#logout").addEventListener("click", logout);
+    const name = (id) => (cs.find((c) => c.id === id) || {}).name || "";
+    $$("[data-enter]").forEach((b) => b.addEventListener("click", async () => {
+      busy(b, true, "Entrando…");
+      try { const r = await post(`companies/${b.dataset.enter}/enter`); R.store.set("admSuper", S.token); S.token = r.token; R.store.set("adm", r.token); R.store.set("empresa", r.company); location.hash = "#/"; await start(); }
+      catch (e) { R.toast(e.message); busy(b, false); }
+    }));
+    $$("[data-reset]").forEach((b) => b.addEventListener("click", async () => {
+      const ok = await confirmModal({ title: "Gerar nova senha?", html: `<p>A senha atual de <b>${esc(name(b.dataset.reset))}</b> deixa de valer e a nova aparece aqui para você enviar ao responsável.</p>`, confirm: "Gerar nova senha", tone: "green" });
+      if (!ok) return;
+      busy(b, true, "Gerando…");
+      try { const r = await post(`companies/${b.dataset.reset}/reset`); $("#supOut").innerHTML = `<div class="okbox"><span>Nova senha de <b>${esc(name(b.dataset.reset))}</b> (${esc(r.company.owner.email)}): <code class="pw">${esc(r.password)}</code>. Envie para o responsável; a senha antiga deixou de valer.</span></div>`; }
+      catch (e) { R.toast(e.message); }
+      busy(b, false);
+    }));
+    $$("[data-block]").forEach((b) => b.addEventListener("click", async () => {
+      const on = b.dataset.on === "1";
+      busy(b, true, "Salvando…");
+      try { await put(`companies/${b.dataset.block}`, { blocked: on }); await reload(); superPanel(); R.toast(on ? "Empresa bloqueada: a equipe dela não consegue mais entrar. Os links já enviados aos clientes continuam abrindo." : "Acesso liberado."); }
+      catch (e) { R.toast(e.message); busy(b, false); }
+    }));
+  }
+  async function backToSuper() {
+    const t = R.store.get("admSuper", "");
+    if (!t) return logout();
+    S.token = t; R.store.set("adm", t); R.store.set("admSuper", ""); R.store.set("empresa", "");
+    R.setBrand({}); location.hash = "#/";
+    await start();
+  }
+
+  /* ---------- minha conta (responsável pela empresa) ---------- */
+  async function account() {
+    shell("acc", R.loadingHTML("Carregando…"));
+    let c = null;
+    try { c = (await api("account")).company; } catch (e) { R.toast(e.message); return; }
+    shell("acc", `
+      <div class="pgh"><div><span class="label">Administrador</span><h1>Minha conta</h1><p class="sub">Dados de acesso do responsável pela conta de ${esc(c.name)}. Os dados que aparecem nas propostas e contratos ficam em Empresa.</p></div></div>
+      <div class="cols">
+        <div class="stack"><div class="card"><h2>Dados de acesso</h2>
+          <label class="fl"><span>Seu nome</span><input class="inp" id="aName" value="${esc(c.owner.name)}"></label>
+          <p class="muted small" style="margin:0">E-mail de acesso: ${esc(c.owner.email)}</p>
+          <div class="row-acts"><button type="button" class="pill pill-green" id="aSave">Salvar</button></div>
+        </div></div>
+        <div class="stack"><div class="card"><h2>Trocar senha</h2>
+          <label class="fl"><span>Senha atual</span><input class="inp" type="password" id="aCur" autocomplete="current-password"></label>
+          <label class="fl"><span>Nova senha (mínimo 8 caracteres)</span><input class="inp" type="password" id="aNew" autocomplete="new-password"></label>
+          <div class="row-acts"><button type="button" class="pill pill-line" id="aPw">Trocar senha</button></div>
+        </div></div>
+      </div>`);
+    $("#aSave").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Salvando…");
+      try { await put("account", { name: $("#aName").value.trim() }); await reload(); R.toast("Dados salvos."); } catch (err) { R.toast(err.message); }
+      busy(e.currentTarget, false);
+    });
+    $("#aPw").addEventListener("click", async (e) => {
+      const cur = $("#aCur").value, nw = $("#aNew").value;
+      if (nw.length < 8) { R.toast("A nova senha precisa de pelo menos 8 caracteres."); return; }
+      busy(e.currentTarget, true, "Trocando…");
+      try { const r = await put("account", { currentPassword: cur, newPassword: nw }); if (r.token) { S.token = r.token; R.store.set("adm", r.token); } $("#aCur").value = ""; $("#aNew").value = ""; R.toast("Senha trocada."); } catch (err) { R.toast(err.message); }
+      busy(e.currentTarget, false);
     });
   }
 
   /* ---------- casca ---------- */
   function shell(active, html) {
     const nav = isAdm()
-      ? [["#/", "Propostas", "list"], ["#/servicos", "Serviços", "cat"], ["#/equipe", "Equipe", "team"], ["#/empresa", "Empresa", "biz"], ["#/config", "Configurações", "cfg"]]
+      ? [["#/", "Propostas", "list"], ["#/servicos", "Serviços", "cat"], ["#/equipe", "Equipe", "team"], ["#/empresa", "Empresa", "biz"], ["#/config", "Configurações", "cfg"], ...(S.data.su ? [] : [["#/conta", "Minha conta", "acc"]])]
       : [["#/", "Propostas", "list"], ["#/perfil", "Meu perfil", "me"]];
-    app.innerHTML = `<header class="adm-top wrap"><div class="inner">
+    app.innerHTML = `${S.data.su ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>Você está no painel de <b>${esc(S.data.company.name)}</b> como dono do sistema.</span><button type="button" class="pill pill-cream pill-sm" id="suBack">Voltar à lista de empresas</button></div>` : ""}<header class="adm-top wrap"><div class="inner">
         <a class="brand" href="#/">${R.logoHTML("escuro")}</a><span class="tag">${isAdm() ? "Propostas" : "Consultor · " + esc(first(me().name))}</span>
         <nav>${nav.map(([h, t, k]) => `<a class="pill ${active === k ? "on" : "pill-line"}" href="${h}">${t}</a>`).join("")}<a class="pill pill-green" href="#/nova">Nova proposta</a><button class="pill pill-line" type="button" id="logout">Sair</button></nav>
       </div></header><main class="adm-main wrap"><div class="inner">${html}</div></main>`;
-    $("#logout").addEventListener("click", logout);
+    $("#logout").addEventListener("click", () => (S.data.su ? backToSuper() : logout()));
+    const sb = $("#suBack"); if (sb) sb.addEventListener("click", backToSuper);
     $$('.adm-top nav a[href="#/"], .adm-top .brand').forEach((a) => a.addEventListener("click", () => { S.view = "all"; S.sel && S.sel.clear(); if (location.hash === "#/" || !location.hash) list(); }));
     window.scrollTo(0, 0);
   }
@@ -126,9 +261,15 @@
   async function start() {
     app.innerHTML = R.loadingHTML("Carregando o painel…");
     try { await reload(); } catch (e) { if (S.token) app.innerHTML = R.stateHTML("Não foi possível carregar", esc(e.message), '<button class="pill pill-green pill-lg" onclick="location.reload()">Tentar de novo</button>'); return; }
+    if (S.data.role === "super") return superPanel();
+    refreshBrandCss();
     route();
   }
-  window.addEventListener("hashchange", () => { if (S.token && S.data) route(); });
+  window.addEventListener("hashchange", () => {
+    if (/^#\/nova-senha\//.test(location.hash)) return login("nova");
+    if (/^#\/criar-conta/.test(location.hash) && !S.token) return login("criar");
+    if (S.token && S.data && S.data.role !== "super") route();
+  });
   function route() {
     const h = location.hash.replace(/^#\/?/, "");
     const m = h.match(/^proposta\/([\w-]+)(\/editar)?$/);
@@ -140,6 +281,7 @@
       if (h === "config") return config();
       if (h === "empresa") return empresa();
       if (h === "equipe") return team();
+      if (h === "conta" && !S.data.su) return account();
     } else if (h === "perfil") return profile();
     return list();
   }
@@ -970,7 +1112,7 @@
       const cur = $("#pwCur").value, nw = $("#pwNew").value;
       if (nw.length < 8) { R.toast("A nova senha precisa de pelo menos 8 caracteres."); return; }
       busy(e.currentTarget, true, "Trocando…");
-      try { await put("me", { currentPassword: cur, newPassword: nw }); $("#pwCur").value = ""; $("#pwNew").value = ""; R.toast("Senha trocada."); } catch (err) { R.toast(err.message); }
+      try { const r = await put("me", { currentPassword: cur, newPassword: nw }); if (r.token) { S.token = r.token; R.store.set("adm", r.token); } $("#pwCur").value = ""; $("#pwNew").value = ""; R.toast("Senha trocada."); } catch (err) { R.toast(err.message); }
       busy(e.currentTarget, false);
     });
   }
@@ -1076,7 +1218,7 @@
     const fld = (k, l, ph = "", hint = "") => `<label class="fl"><span>${l}</span><input class="inp" data-ag="${k}" value="${esc(/cnpj|Doc/.test(k) ? R.maskDoc(a[k] || "") : a[k] || "")}" placeholder="${esc(ph)}"${/cnpj|Doc/.test(k) ? ' inputmode="numeric"' : ""}>${hint ? `<small>${hint}</small>` : ""}</label>`;
     const logoSlot = (kind, title, hint) => {
       const v = b.logos && b.logos[kind];
-      return `<div class="logo-slot ${kind}"><div class="logo-prev">${v ? `<img src="/api/public/logo/${kind}?v=${esc(v)}" alt="">` : `<span class="wordmark">${esc(a.name || "Sua empresa")}</span>`}</div>
+      return `<div class="logo-slot ${kind}"><div class="logo-prev">${v ? `<img src="/api/public/logo/${kind}${R.imgQ(v)}" alt="">` : `<span class="wordmark">${esc(a.name || "Sua empresa")}</span>`}</div>
         <div><b>${title}</b><small>${hint}</small><div class="row-acts"><label class="pill pill-cream pill-sm">${v ? "Trocar" : "Enviar logo"}<input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" data-logo="${kind}" hidden></label>${v ? `<button type="button" class="link-btn" data-logo-del="${kind}">Remover</button>` : ""}</div></div></div>`;
     };
     const fontSel = (id, cur) => `<select class="sel" id="${id}">${fonts.map(([k, l]) => `<option value="${k}"${k === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
@@ -1105,7 +1247,7 @@
           </div>
           <div class="card"><div class="ch"><h2>Galeria de trabalhos</h2><label class="pill pill-cream pill-sm">Adicionar imagens<input type="file" accept="image/png,image/jpeg,image/webp" id="pfAdd" multiple hidden></label></div>
             <p class="muted small" style="margin:0">Aparece nas propostas quando tiver pelo menos uma imagem. As fotos são reduzidas para 1600 px antes de enviar.</p>
-            ${pf.length ? `<ul class="pf-list">${pf.map((x, i) => `<li data-pf="${esc(x.id)}"><img src="/api/public/portfolio/${encodeURIComponent(x.id)}?v=${esc(x.v)}" alt=""><input class="inp" data-pf-name value="${esc(x.name || "")}" placeholder="Legenda (opcional)"><div class="row-acts"><button type="button" class="link-btn" data-pf-up="${i}"${i ? "" : " disabled"}>↑</button><button type="button" class="link-btn" data-pf-del="${esc(x.id)}">Remover</button></div></li>`).join("")}</ul>` : `<div class="empty"><span>Nenhuma imagem ainda.</span></div>`}
+            ${pf.length ? `<ul class="pf-list">${pf.map((x, i) => `<li data-pf="${esc(x.id)}"><img src="/api/public/portfolio/${encodeURIComponent(x.id)}${R.imgQ(x.v)}" alt=""><input class="inp" data-pf-name value="${esc(x.name || "")}" placeholder="Legenda (opcional)"><div class="row-acts"><button type="button" class="link-btn" data-pf-up="${i}"${i ? "" : " disabled"}>↑</button><button type="button" class="link-btn" data-pf-del="${esc(x.id)}">Remover</button></div></li>`).join("")}</ul>` : `<div class="empty"><span>Nenhuma imagem ainda.</span></div>`}
           </div>
         </div>
         <div class="stack">
@@ -1138,7 +1280,7 @@
 
   // aplica cores e fontes no painel aberto (prévia) e recarrega o CSS da marca depois de salvar
   const applyColors = (c) => { const r = document.documentElement.style; r.setProperty("--primary", c.primary); r.setProperty("--accent", c.accent); r.setProperty("--ink", c.dark); r.setProperty("--cream", c.light); };
-  const refreshBrandCss = () => { const l = document.querySelector('link[href^="/api/public/brand.css"]'); if (l) l.href = "/api/public/brand.css?t=" + Date.now(); document.documentElement.removeAttribute("style"); };
+  function refreshBrandCss() { const l = document.querySelector('link[href^="/api/public/brand.css"]'); const e = (S.data && S.data.company && S.data.company.id) || ""; if (l) l.href = "/api/public/brand.css?e=" + encodeURIComponent(e) + "&t=" + Date.now(); document.documentElement.removeAttribute("style"); }
 
   // lê um arquivo de imagem e devolve um data URL reduzido (PNG para logos, JPEG para fotos)
   function shrinkImage(file, { max, type, quality }) {
@@ -1277,7 +1419,7 @@
           <div class="card"><h2>Link aberto</h2>
             <label class="switch"><input type="checkbox" id="cOpen"${st.openLink ? " checked" : ""}>Permitir pedidos por um link geral, com todos os serviços ativos</label>
             <p class="muted small">Útil para bio do Instagram ou para quem pede “a tabela”. Cada pedido feito por ele vira uma proposta no painel.</p>
-            <div class="linkbox"><input class="inp" readonly value="${origin}/p/aberta"><button type="button" class="pill pill-cream" data-copy="${origin}/p/aberta">Copiar</button></div>
+            <div class="linkbox"><input class="inp" readonly value="${origin}/p/aberta?e=${esc(S.data.company.id)}"><button type="button" class="pill pill-cream" data-copy="${origin}/p/aberta?e=${esc(S.data.company.id)}">Copiar</button></div>
           </div>
           <div class="card" id="demoCard"><h2>Modelo de teste</h2>
             <p class="muted small" style="margin:0">Cria a pasta “Modelo de teste” com um consultor fictício e cinco propostas, uma em cada etapa: aberta, pedido recebido, contrato em rascunho, Paraguai aguardando assinatura e contrato assinado. Serve para conferir o sistema de ponta a ponta. Criar de novo substitui o modelo anterior.</p>
@@ -1334,7 +1476,7 @@
       try {
         const r = await post("demo");
         await reload();
-        $("#demoOut").innerHTML = `<div class="okbox" style="display:grid;gap:8px"><span>Modelo criado. Acesso do consultor fictício (aba Consultor): <b>${esc(r.seller.email)}</b> · senha <code class="pw">${esc(r.seller.password)}</code></span>
+        $("#demoOut").innerHTML = `<div class="okbox" style="display:grid;gap:8px"><span>Modelo criado. Acesso do consultor fictício (Entrar, com este e-mail): <b>${esc(r.seller.email)}</b> · senha <code class="pw">${esc(r.seller.password)}</code></span>
           <ul class="lines">${r.proposals.map((p) => `<li><a href="#/proposta/${p.id}">${esc(p.name)}</a><a class="small" href="/p/${p.id}" target="_blank" rel="noopener">abrir como cliente</a></li>`).join("")}</ul></div>`;
         R.toast("Modelo de teste criado na pasta “Modelo de teste”.");
       } catch (err) { R.toast(err.message); }
@@ -1433,5 +1575,7 @@
   }
 
   /* ---------- início ---------- */
-  if (S.token) start(); else login();
+  if (/^#\/nova-senha\//.test(location.hash)) login("nova");
+  else if (S.token) start();
+  else login(/^#\/criar-conta/.test(location.hash) ? "criar" : "entrar");
 })();

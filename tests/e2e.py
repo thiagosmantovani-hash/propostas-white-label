@@ -1,6 +1,8 @@
 """
 Pente fino do sistema de propostas (white label): percorre todas as etapas no navegador
-(administrador, consultor, cliente no Brasil e no exterior, contrato, PDF, pastas e arquivo).
+(criação de conta, administrador, consultor, cliente no Brasil e no exterior, contrato, PDF, pastas, arquivo,
+separação entre empresas e painel do dono do sistema).
+Cada execução cria uma conta nova (empresa "[E2E] ..."), então não mexe nos dados de nenhuma empresa real.
 
 Uso (servidor local):
     node dev/server.mjs            # em outro terminal
@@ -8,7 +10,7 @@ Uso (servidor local):
 
 Contra outro endereço:
     BASE_URL=https://seu-site.netlify.app ADMIN_PASSWORD=... python3 tests/e2e.py
-    (cria dados com o prefixo "[E2E]"; no fim, apaga o que criou, exceto se KEEP=1)
+    (ADMIN_PASSWORD é a senha do dono do sistema; cria contas "[E2E]"; no fim, apaga as propostas que criou, exceto se KEEP=1)
 
 Saída: tests/output/relatorio.md, capturas de tela e o PDF assinado de cada fluxo.
 Requer: pip install playwright && python3 -m playwright install chromium
@@ -25,6 +27,7 @@ OUT = Path(__file__).parent / "output"
 OUT.mkdir(exist_ok=True)
 TAG = "[E2E]"
 STAMP = str(int(time.time()))
+OWNER = {"name": "Responsável E2E", "company": f"{TAG} Empresa {STAMP[-5:]}", "email": f"e2e.dono.{STAMP}@exemplo.com", "password": "SenhaDono123"}
 
 results, problems = [], []
 created = {"proposals": [], "users": [], "folders": []}
@@ -134,10 +137,9 @@ async def admin_login(page):
     await page.goto(BASE + "/admin")
     await page.evaluate("localStorage.clear()")
     await page.reload()
-    await must(page, "#pw")
-    if await page.query_selector('[data-as="admin"]:not(.on)'):
-        await page.click('[data-as="admin"]')
-    await page.fill("#pw", ADMIN_PW)
+    await must(page, "#em")
+    await page.fill("#em", OWNER["email"])
+    await page.fill("#pw", OWNER["password"])
     await page.click("button[type=submit]")
     await must(page, ".tiles, .card .empty")
 
@@ -146,7 +148,7 @@ async def seller_login(page, email, pw):
     await page.goto(BASE + "/admin")
     await page.evaluate("localStorage.clear()")
     await page.reload()
-    await page.click('[data-as="seller"]')
+    await must(page, "#em")
     await page.fill("#em", email)
     await page.fill("#pw", pw)
     await page.click("button[type=submit]")
@@ -227,6 +229,23 @@ async def main():
         C = await (await ctx()).new_page(); watch(C, "cliente")
         st = {}
 
+        async with Step("00 Empresa cria a conta pela tela Criar conta"):
+            await A.goto(BASE + "/admin#/criar-conta")
+            await A.evaluate("localStorage.clear()")
+            await A.reload()
+            await must(A, "#nm")
+            await shot(A, "00-criar-conta")
+            await A.fill("#nm", OWNER["name"]); await A.fill("#co", OWNER["company"])
+            await A.fill("#em", OWNER["email"]); await A.fill("#pw", OWNER["password"])
+            await A.click("button[type=submit]")
+            await must(A, "#aName, .adm-top")
+            assert "#/empresa" in A.url, A.url
+            TOKEN["admin"] = await A.evaluate('R.store.get("adm", "")')
+            s_, d_ = api("admin/bootstrap", tok=TOKEN["admin"])
+            assert s_ == 200 and d_["company"]["name"] == OWNER["company"] and not d_["proposals"], d_
+            COMPANY["id"] = d_["company"]["id"]
+            await shot(A, "00-empresa-nova")
+
         async with Step("01 Admin entra no painel"):
             await admin_login(A)
             await shot(A, "01-admin-lista")
@@ -260,7 +279,7 @@ async def main():
             if await A.query_selector("#cfgPad"):
                 await draw(A, "#cfgPad canvas"); await A.click("#sgSave"); await must(A, ".sig-saved img")
             await shot(A, "02a-dados-da-empresa")
-            css = urllib.request.urlopen(BASE + "/api/public/brand.css").read().decode()
+            css = urllib.request.urlopen(BASE + "/api/public/brand.css?e=" + COMPANY["id"]).read().decode()
             if local: assert "#0f766e" in css, css
 
         async with Step("02 Configurações: modelo único de contrato e contrato próprio em arquivo"):
@@ -464,6 +483,37 @@ async def main():
             if s == 200:
                 await C.goto(BASE + "/p/aberta"); await must(C, "#orderForm")
 
+        async with Step("26a Outra empresa não vê nada desta"):
+            s_, d_ = api("admin/signup", {"name": "Outra Pessoa", "company": f"{TAG} Outra {STAMP[-5:]}", "email": f"e2e.outra.{STAMP}@exemplo.com", "password": "SenhaOutra123"})
+            assert s_ == 200, d_
+            t2 = d_["token"]
+            s_, b2 = api("admin/bootstrap", tok=t2)
+            assert s_ == 200 and not b2["proposals"] and not b2["catalog"] and not b2["users"], "outra empresa enxergou dados"
+            s_, _ = api(f"admin/proposals/{st['p_admin']}", tok=t2)
+            assert s_ == 404, f"outra empresa abriu a proposta ({s_})"
+            s_, _ = api("admin/users", {"name": "Copia Consultor", "email": st["seller_email"]}, t2)
+            assert s_ == 400, "e-mail de consultor repetido em outra empresa"
+            s_, b1 = api("admin/bootstrap", tok=TOKEN["admin"])
+            COMPANY["name"] = b1["company"]["name"]  # acompanha o nome salvo em Dados da empresa
+            assert COMPANY["name"] == b1["settings"]["agency"]["name"], "nome da empresa não acompanhou Dados da empresa"
+            s_, pb = api(f"public/proposal/{st['p_admin']}")
+            assert s_ in (200, 410) and (s_ == 410 or (pb["agency"]["name"] == COMPANY["name"] and pb["agency"]["e"] == COMPANY["id"])), "link público com a marca errada"
+
+        async with Step("26b Dono do sistema vê as empresas e entra no painel de uma"):
+            await A.goto(BASE + "/admin")
+            await A.evaluate("localStorage.clear()")
+            await A.reload()
+            await must(A, '[data-mode="dono"]')
+            await A.click('[data-mode="dono"]'); await A.fill("#pw", ADMIN_PW); await A.click("button[type=submit]")
+            await must(A, "[data-enter]")
+            assert COMPANY["name"] in await A.text_content("main"), "empresa não aparece na lista do dono"
+            await shot(A, "26b-painel-do-dono")
+            await A.click(f'[data-enter="{COMPANY["id"]}"]')
+            await must(A, "#suBack")
+            await must(A, ".tiles")
+            await A.click("#suBack"); await must(A, "[data-enter]")
+            await admin_login(A)
+
         async with Step("27 Modelo de teste: criar e conferir as cinco etapas"):
             await go(A, "#/config"); await must(A, "#demoMake")
             await A.click("#demoMake"); await must(A, "#demoOut .okbox", 20000)
@@ -548,6 +598,7 @@ async def main():
 
 
 TOKEN = {}
+COMPANY = {}
 
 
 def cleanup():
@@ -565,8 +616,7 @@ def cleanup():
 if __name__ == "__main__":
     s, d = api("admin/login", {"password": ADMIN_PW})
     if s != 200:
-        sys.exit(f"Não entrou como administrador em {BASE}: {d}")
-    TOKEN["admin"] = d["token"]
+        sys.exit(f"Não entrou como dono do sistema em {BASE} (confira ADMIN_PASSWORD): {d}")
     t0 = time.time()
     asyncio.run(main())
     cleanup()

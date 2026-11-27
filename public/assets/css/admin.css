@@ -266,3 +266,4 @@ code.pw{font-family:ui-monospace,Menlo,monospace;font-size:15px;background:color
 .link-btn[disabled]{opacity:.35;pointer-events:none}
 #loginLogo{min-height:26px}
 #loginLogo img{height:26px;width:auto}
+.form-msg.ok{color:var(--primary-glow)}

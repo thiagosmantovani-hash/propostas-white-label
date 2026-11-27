@@ -54,7 +54,7 @@ export function brandOf(settings) {
 }
 
 // Marca em uso nesta requisição, para os textos de e-mail, WhatsApp e PDF.
-// Cada site publicado atende uma empresa (passo 1 do plano), então um valor por instância basta.
+// É definida a cada requisição por getSettings() da empresa atendida (cada função atende uma requisição por vez).
 let current = brandOf({});
 export const useBrand = (settings) => { current = brandOf(settings); return current; };
 export const brand = () => current;

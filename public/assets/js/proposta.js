@@ -33,7 +33,7 @@
     R.setLocale("pt", "BRL");
     app.innerHTML = R.loadingHTML(t("loading_prop"));
     try {
-      P = await R.api(`public/proposal/${encodeURIComponent(id)}${preview ? `?preview=1&k=${encodeURIComponent(pkey)}` : ""}`);
+      P = await R.api(`public/proposal/${encodeURIComponent(id)}${preview ? `?preview=1&k=${encodeURIComponent(pkey)}` : id === "aberta" ? `?e=${encodeURIComponent(R.E)}` : ""}`);
     } catch (e) {
       if (e.status === 410 && e.data) {
         R.setLocale(e.data.lang || "pt", "BRL");
@@ -42,7 +42,7 @@
         app.innerHTML = R.stateHTML(t("off_h"), esc(e.message), `<a class="pill pill-green pill-lg" href="${R.wa(e.data.whatsapp || "", t("wa_off", { n: e.data.number || "" }))}" target="_blank" rel="noopener">${t("off_talk")}</a>`);
         return;
       }
-      try { R.setBrand(await R.api("public/brand")); } catch (e2) {}
+      try { R.setBrand(await R.api("public/brand" + R.ref())); } catch (e2) {}
       const nf = e.status === 404;
       app.innerHTML = R.stateHTML(nf ? t("prop_nf") : t("cant_open"), nf ? t("prop_nf_p") : esc(e.message), `<a class="pill pill-green pill-lg" href="${R.wa("", t("wa_cant_prop"))}" target="_blank" rel="noopener">${t("talk_wa")}</a>`);
       return;
@@ -168,7 +168,7 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
       ${gallery.length ? `<section class="brands wrap on-light" aria-labelledby="pf">
         <div class="inner">
           <div class="brands-head"><div><span class="label" style="color:var(--accent)">${t("pf_label")}</span><h2 class="h-sec" id="pf" style="margin-top:16px">${t("pf_h")}</h2></div><p>${t("pf_p")}</p></div>
-          <ul class="logo-grid">${gallery.map((g) => `<li><figure><img src="/api/public/portfolio/${encodeURIComponent(g.id)}?v=${encodeURIComponent(g.v || "")}" alt="${esc(g.name || "")}" loading="lazy" decoding="async" width="400" height="300">${g.name ? `<figcaption>${esc(g.name)}</figcaption>` : ""}</figure></li>`).join("")}</ul>
+          <ul class="logo-grid">${gallery.map((g) => `<li><figure><img src="/api/public/portfolio/${encodeURIComponent(g.id)}${R.imgQ(g.v)}" alt="${esc(g.name || "")}" loading="lazy" decoding="async" width="400" height="300">${g.name ? `<figcaption>${esc(g.name)}</figcaption>` : ""}</figure></li>`).join("")}</ul>
         </div>
       </section>` : ""}
 
@@ -592,7 +592,7 @@ ${P.open ? `          <div class="hero-ctas"><a class="pill pill-green pill-lg" 
     const body = { items: [...picked].map((sid) => ({ serviceId: sid, optionId: choice[sid] })), client, notes: d.notes, accept: true };
     try {
       if (P.open) {
-        const r = await R.api("public/proposal/aberta/order", { method: "POST", body: JSON.stringify(body) });
+        const r = await R.api(`public/proposal/aberta/order?e=${encodeURIComponent(R.E)}`, { method: "POST", body: JSON.stringify(body) });
         location.href = `/p/${r.id}#pedido`;
         return;
       }
