@@ -15,7 +15,7 @@
     app.innerHTML = R.loadingHTML(t("loading_c"));
     try { C = await R.api(`public/contract/${encodeURIComponent(id)}`); }
     catch (e) {
-      try { R.setBrand(await R.api("public/brand")); } catch (e2) {}
+      try { R.setBrand(await R.api("public/brand" + R.ref())); } catch (e2) {}
       const nf = e.status === 404;
       app.innerHTML = R.stateHTML(nf ? t("c_nf") : t("cant_open"), nf ? t("c_nf_p") : esc(e.message), `<a class="pill pill-green pill-lg" href="${R.wa("", t("wa_cant_c"))}" target="_blank" rel="noopener">${t("talk_wa")}</a>`);
       return;

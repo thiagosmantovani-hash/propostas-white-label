@@ -2,6 +2,16 @@
 
 Sistema de montagem, envio e assinatura de propostas para empresas e freelancers de qualquer área de prestação de serviços. Nada da marca fica fixo no código: nome, logo, cores, fontes, textos e dados do contrato vêm da tela **Dados da empresa** do painel. Roda no Netlify com Functions e Blobs; não precisa de banco de dados externo.
 
+## Contas (várias empresas no mesmo sistema)
+
+- Qualquer empresa ou freelancer cria a conta em `/admin#/criar-conta` (ou no botão **Criar conta** da página inicial): nome, nome da empresa, e-mail e senha. Já entra no painel dela, vazio, começando por **Empresa**.
+- Cada conta tem a sua "gaveta" de dados (`e/<id da empresa>/...` no Blobs): propostas, contratos, clientes, pastas, catálogo, consultores, marca e contrato. Uma empresa nunca lê nem grava os dados de outra (ver `netlify/lib/store.mjs`).
+- Login com e-mail e senha em `/admin` (o responsável e os consultores usam a mesma tela). O e-mail é único no sistema todo. **Esqueci minha senha** manda um link válido por 1 hora (precisa do e-mail do sistema configurado, abaixo).
+- Em **Minha conta** o responsável troca o nome e a senha. Trocar a senha encerra os acessos abertos com a senha antiga.
+- Os links do cliente (`/p/...`, `/c/...`) continuam iguais e mostram a marca da empresa certa. O link aberto fica em `/p/aberta?e=<id da empresa>` (aparece pronto em Configurações).
+- **Dono do sistema**: em `/admin`, **Acesso do dono do sistema**, com a senha `ADMIN_PASSWORD`. Mostra todas as empresas (responsável, data, propostas, consultores), permite bloquear/liberar o acesso, gerar uma senha nova para o responsável e entrar no painel de qualquer empresa para dar suporte. Empresa bloqueada não entra no painel, mas os links já enviados aos clientes continuam abrindo.
+- `SIGNUP_CLOSED=1` fecha o cadastro de novas empresas.
+
 ## Dados da empresa (white label)
 
 No painel, em **Empresa** (`/admin#/empresa`), o administrador define:
@@ -34,7 +44,7 @@ Os testes usam um catálogo de exemplo próprio (`tests/catalogo-exemplo.mjs`), 
 ## Consultores
 
 - O administrador cadastra consultores em Equipe (#/equipe) e recebe uma senha gerada para enviar a eles.
-- O consultor entra em /admin, aba Consultor, com e-mail e senha. Ele vê só as propostas dele, completa CPF e assinatura em Meu perfil, gera o contrato e assina como intermediador e testemunha.
+- O consultor entra em /admin com e-mail e senha. Ele vê só as propostas dele, completa CPF e assinatura em Meu perfil, gera o contrato e assina como intermediador e testemunha.
 - Com a opção "Consultores podem liberar contratos com a assinatura padrão da empresa" ligada, ele libera o contrato e a assinatura padrão é aplicada, com registro de quem liberou. Desligada, só o administrador libera.
 
 ## Contrato
@@ -66,7 +76,9 @@ Veja `tests/README.md`. O pente fino completo roda com `python3 tests/e2e.py`, e
 
 Com `GMAIL_USER` (ex.: propostas.suaempresa@gmail.com) e `GMAIL_APP_PASSWORD` (senha de app do Google, criada em myaccount.google.com/apppasswords com a verificação em duas etapas ativa), o sistema envia:
 - ao cliente: confirmação do pedido, link do contrato e cópia assinada em PDF;
-- à empresa (GMAIL_USER ou NOTIFY_EMAIL) e ao consultor: avisos de pedido, recusa e assinatura.
+- à empresa (e-mail salvo em Dados da empresa) e ao consultor: avisos de pedido, recusa e assinatura;
+- a quem pediu: o link de **Esqueci minha senha**.
+O remetente é do sistema todo; o nome que aparece é o da empresa de cada conta.
 Nunca use a senha normal da conta. `EMAIL_TEST=1` registra os envios sem mandar nada (para testes; lista em /api/public/__emails).
 
 ## WhatsApp automático (Z-API)
@@ -85,11 +97,11 @@ As duas frentes ligam e desligam em Configurações › WhatsApp automático, qu
 
 | Variável | Obrigatória | Para quê |
 |---|---|---|
-| `ADMIN_PASSWORD` | sim | Senha do painel |
+| `ADMIN_PASSWORD` | sim | Senha do dono do sistema (painel com todas as empresas) |
 | `SESSION_SECRET` | recomendada | Texto aleatório longo; reforça a sessão do painel |
 | `RESEND_API_KEY` | não | Liga os e-mails automáticos (resend.com) |
 | `EMAIL_FROM` | não | Remetente verificado no Resend, ex.: `propostas@seudominio.com.br` (o nome vem de Dados da empresa) |
-| `NOTIFY_EMAIL` | não | Seu e-mail para avisos de pedido e assinatura |
+| `SIGNUP_CLOSED` | não | `1` fecha o cadastro de novas empresas |
 | `BLOBS_STORE` | não | Nome do armazenamento no Netlify Blobs. Padrão `propostas` |
 
 Marque o escopo **Functions** nas variáveis. Depois de mudar uma variável, faça um novo deploy.
@@ -111,7 +123,7 @@ dev/server.mjs          servidor local para testes
 
 ```bash
 npm install
-npm run dev          # http://localhost:8888  · senha local: teste123
+npm run dev          # http://localhost:8888  · crie uma conta em /admin; senha local do dono do sistema: teste123
 ```
 
 Os dados locais ficam em `dev/.data` (ignorado pelo git).

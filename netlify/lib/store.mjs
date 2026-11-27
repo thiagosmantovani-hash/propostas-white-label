@@ -1,6 +1,16 @@
 // Armazenamento: Netlify Blobs em produção; pasta local quando LOCAL_BLOBS_DIR estiver definida (testes).
+// Cada empresa cadastrada tem a sua "gaveta": tudo o que db() lê ou grava fica em e/<id da empresa>/...
+// A empresa da requisição é definida uma vez (withCompany) e vale para todo o código chamado dentro dela,
+// então uma empresa nunca lê nem grava os dados de outra. Sem empresa definida, db() recusa.
+// rootDb() guarda o que é do sistema todo: empresas, logins (e-mail -> empresa), links públicos e pedidos de nova senha.
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+const scope = new AsyncLocalStorage();
+export const withCompany = (cid, fn) => scope.run({ cid }, fn);
+export const currentCompany = () => (scope.getStore() || {}).cid || null;
+export const okCompanyId = (id) => /^[\w-]{6,64}$/.test(id || "");
 
 let cached = null;
 
@@ -44,11 +54,27 @@ async function blobStore() {
   };
 }
 
-export async function db() {
+export async function rootDb() {
   if (cached) return cached;
   const local = env("LOCAL_BLOBS_DIR");
   cached = local ? fileStore(local) : await blobStore();
   return cached;
+}
+
+function prefixed(base, pre) {
+  return {
+    get: (key) => base.get(pre + key),
+    set: (key, value) => base.set(pre + key, value),
+    del: (key) => base.del(pre + key),
+    async list(prefix) { return (await base.list(pre + prefix)).map((k) => k.slice(pre.length)); },
+  };
+}
+
+// dados da empresa da requisição atual
+export async function db() {
+  const cid = currentCompany();
+  if (!okCompanyId(cid)) throw new Error("empresa não definida para esta requisição");
+  return prefixed(await rootDb(), "e/" + cid + "/");
 }
 
 export async function listDocs(prefix) {

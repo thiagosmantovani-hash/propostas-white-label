@@ -1,7 +1,9 @@
 // API do sistema de propostas (white label: a marca vem de Dados da empresa).
 // Rotas públicas (cliente, por link único) em /api/public/... e rotas do painel em /api/admin/...
-// O painel tem dois perfis: administrador (vê tudo) e consultor (vê e assina as próprias propostas).
-import { db, listDocs } from "../lib/store.mjs";
+// Várias empresas usam o mesmo sistema: cada uma cria a conta em /admin e só enxerga os próprios dados (ver lib/store.mjs).
+// Perfis: dono do sistema (super, senha ADMIN_PASSWORD), administrador da empresa (vê tudo da empresa)
+// e consultor (vê e assina as próprias propostas).
+import { db, rootDb, listDocs, withCompany, currentCompany, okCompanyId, env } from "../lib/store.mjs";
 import { DEFAULT_CATALOG, DEFAULT_SETTINGS, AGENCY_I18N, COUNTRIES, CURRENCIES, localizeService } from "../lib/catalog.mjs";
 import { TEMPLATES, TEMPLATE_VARS, contractVars, fillTemplate, missingVars, numberClauses, withEssentials } from "../lib/contract.mjs";
 import { contractPdf, documentPdf } from "../lib/pdf.mjs";
@@ -10,7 +12,7 @@ import { zipSync, strToU8 } from "fflate";
 import { demo_signature } from "../lib/brand/demo-signature.mjs";
 import { brand, brandOf, useBrand, brandCss, fontList, okColor, parseImage, getImage, putImage, delImage, BRAND_DEFAULTS } from "../lib/brand.mjs";
 import { emailEnabled, emailSender, notifyAddress, sendEmail, layout, esc, sentLog } from "../lib/email.mjs";
-import { adminConfigured, checkPassword, issueToken, session, hashPassword, verifyPassword, newPassword } from "../lib/auth.mjs";
+import { adminConfigured, checkPassword, issueToken, session, hashPassword, verifyPassword, newPassword, pwMark } from "../lib/auth.mjs";
 import { json, fail, token, sha256, nowISO, todayBR, addDays, clean, onlyDigits, validDoc, fmtDoc, computeTotals, clientIP, money, dateLongL } from "../lib/util.mjs";
 
 const LOCKED = ["contrato", "assinada"];
@@ -20,7 +22,8 @@ const CTRY = Object.fromEntries(COUNTRIES.map((c) => [c[0], c]));
 
 /* ---------- leitura e gravação ---------- */
 async function getSettings() {
-  const s = (await (await db()).get("settings")) || {};
+  // sem empresa (ex.: tela de login), as páginas usam a identidade neutra
+  const s = currentCompany() ? (await (await db()).get("settings")) || {} : {};
   const ag = Object.fromEntries(Object.entries(s.agency || {}).filter(([, v]) => v != null && String(v).trim() !== ""));
   // assinatura padrão da empresa: só a desenhada no painel (não há assinatura fixa no sistema)
   const sig = s.agencySignature && s.agencySignature.custom && s.agencySignature.image ? s.agencySignature : null;
@@ -38,8 +41,20 @@ const okId = (id) => /^[\w-]{6,64}$/.test(id || "");
 const getProposal = async (id) => (okId(id) ? (await db()).get("proposals/" + id) : null);
 const getContract = async (id) => (okId(id) ? (await db()).get("contracts/" + id) : null);
 const getUser = async (id) => (okId(id) ? (await db()).get("users/" + id) : null);
-async function saveProposal(p) { p.updatedAt = nowISO(); await (await db()).set("proposals/" + p.id, p); return p; }
-async function saveContract(c) { c.updatedAt = nowISO(); await (await db()).set("contracts/" + c.id, c); return c; }
+// links públicos (/p/... e /c/...): o índice links/<id> diz de qual empresa é a proposta ou o contrato
+async function linkDoc(x) { if (x.cid) return; x.cid = currentCompany(); await (await rootDb()).set("links/" + x.id, { cid: x.cid, at: nowISO() }); }
+async function companyOfLink(id) { if (!okId(id)) return null; const l = await (await rootDb()).get("links/" + id); return l && okCompanyId(l.cid) ? l.cid : null; }
+async function saveProposal(p) { await linkDoc(p); p.updatedAt = nowISO(); await (await db()).set("proposals/" + p.id, p); return p; }
+async function saveContract(c) { await linkDoc(c); c.updatedAt = nowISO(); await (await db()).set("contracts/" + c.id, c); return c; }
+
+/* ---------- empresas e logins (dados do sistema todo) ---------- */
+const getCompany = async (cid) => (okCompanyId(cid) ? (await rootDb()).get("companies/" + cid) : null);
+async function saveCompany(c) { c.updatedAt = nowISO(); await (await rootDb()).set("companies/" + c.id, c); return c; }
+// e-mail é único no sistema: logins/<hash do e-mail> -> { cid, uid } (uid vazio = responsável pela empresa)
+const loginKey = (email) => "logins/" + sha256(String(email || "").trim().toLowerCase()).slice(0, 40);
+const getLogin = async (email) => (await rootDb()).get(loginKey(email));
+const setLogin = async (email, v) => (await rootDb()).set(loginKey(email), { ...v, email: String(email).toLowerCase() });
+const delLogin = async (email) => (await rootDb()).del(loginKey(email));
 async function saveUser(u) { u.updatedAt = nowISO(); await (await db()).set("users/" + u.id, u); return u; }
 const log = (p, type, text) => { (p.history ||= []).push({ at: nowISO(), type, text }); };
 const userPublic = (u) => u && ({ id: u.id, name: u.name, doc: u.doc, email: u.email, phone: u.phone, active: u.active !== false, hasSignature: !!u.signature, createdAt: u.createdAt });
@@ -107,7 +122,7 @@ function agencyPublic(settings, lang = "pt") {
   const b = settings.brand || brandOf(settings);
   const custom = (k) => JSON.stringify(b[k]) !== JSON.stringify(BRAND_DEFAULTS[k]); // textos editados valem em todos os idiomas; os padrão têm tradução no site
   return {
-    name: settings.agency.name, whatsapp: settings.whatsapp, instagram: settings.instagram, site: settings.site, city: settings.agency.city || "",
+    e: currentCompany() || "", name: settings.agency.name, whatsapp: settings.whatsapp, instagram: settings.instagram, site: settings.site, city: settings.agency.city || "",
     intro: t.intro || settings.intro, nextSteps: t.nextSteps || settings.nextSteps,
     tagline: b.tagline, about: custom("about") ? b.about : "", statValue: b.statValue, statLabel: b.statLabel, principles: custom("principles") ? b.principles : null,
     logos: b.logos, portfolio: b.portfolio.map((x) => ({ id: x.id, name: x.name, v: x.v })),
@@ -169,8 +184,8 @@ export default async (req, context) => {
   const url = new URL(req.url);
   const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
   try {
-    if (parts[0] === "public") return await publicRoutes(req, context, url, parts.slice(1));
-    if (parts[0] === "admin") return await adminRoutes(req, context, url, parts.slice(1));
+    if (parts[0] === "public") return await publicEntry(req, context, url, parts.slice(1));
+    if (parts[0] === "admin") return await adminEntry(req, context, url, parts.slice(1));
     return fail("Rota não encontrada.", 404);
   } catch (e) {
     console.error(e);
@@ -181,15 +196,42 @@ export default async (req, context) => {
 export const config = { path: "/api/*" };
 
 /* ---------- rotas públicas ---------- */
-async function publicRoutes(req, context, url, [kind, id, action]) {
+// Descobre a empresa: pelo id da proposta/contrato; ou por ?e=<empresa>; ou por ?ref=<caminho da página> (brand.css)
+async function publicCompany(url, kind, id) {
+  if ((kind === "proposal" && id !== "aberta") || kind === "contract") return companyOfLink(id);
+  let e = url.searchParams.get("e") || "";
+  const ref = url.searchParams.get("ref") || "";
+  if (!e && ref) {
+    const m = ref.match(/^\/(p|c)\/([\w-]+)/);
+    if (m && m[2] !== "aberta") return companyOfLink(m[2]);
+    const q = ref.split("?")[1];
+    if (q) e = new URLSearchParams(q).get("e") || "";
+  }
+  const c = await getCompany(e);
+  return c ? c.id : null;
+}
+
+async function publicEntry(req, context, url, parts) {
+  const [kind, id] = parts;
   if (kind === "__emails" && process.env.EMAIL_TEST === "1") return json({ sent: sentLog });
+  const cid = await publicCompany(url, kind, id);
+  if (!cid) {
+    if (kind === "proposal") return fail("Proposta não encontrada.", 404);
+    if (kind === "contract") return fail("Contrato não encontrado.", 404);
+    if (kind === "brand" || kind === "brand.css") return publicRoutes(req, context, url, parts); // identidade neutra
+    return fail("Não encontrado.", 404);
+  }
+  return withCompany(cid, () => publicRoutes(req, context, url, parts));
+}
+
+async function publicRoutes(req, context, url, [kind, id, action]) {
   const settings = await getSettings();
   const m = req.method;
 
   // marca da empresa: cores e fontes (CSS), logos e galeria de trabalhos
   if (kind === "brand" && m === "GET") return json(agencyPublic(settings));
   if (kind === "brand.css" && m === "GET") return new Response(brandCss(settings), { headers: { "content-type": "text/css; charset=utf-8", "cache-control": "no-cache" } });
-  if ((kind === "logo" || kind === "portfolio") && m === "GET") {
+  if ((kind === "logo" || kind === "portfolio") && m === "GET" && currentCompany()) {
     const slot = kind === "logo" ? (["escuro", "claro"].includes(id) ? "logo-" + id : "") : okId(id) ? "portfolio-" + id : "";
     const img = slot ? await getImage(slot) : null;
     if (!img) return fail("Imagem não encontrada.", 404);
@@ -374,31 +416,174 @@ async function placeOrder(p, body, settings, req, context, opts = {}) {
 }
 
 /* ---------- rotas do painel ---------- */
-async function adminRoutes(req, context, url, [kind, id, action]) {
+const slow = () => new Promise((r) => setTimeout(r, 700)); // atrasa respostas de senha errada (dificulta tentativas em massa)
+const companyPublic = (c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, blocked: !!c.blocked, owner: { name: c.owner.name, email: c.owner.email } });
+
+async function adminEntry(req, context, url, parts) {
+  const [kind] = parts;
   const m = req.method;
-  const s = await db();
-  if (kind === "login" && m === "POST") {
-    if (!adminConfigured()) return fail("Defina a variável ADMIN_PASSWORD no Netlify para liberar o painel.", 503);
-    const b = await req.json().catch(() => ({}));
-    const email = clean(b.email, 160).toLowerCase();
-    if (email) {
-      const users = await listDocs("users/");
-      const u = users.find((x) => x.email === email && x.active !== false);
-      if (!u || !verifyPassword(b.password, u)) { await new Promise((r) => setTimeout(r, 700)); return fail("E-mail ou senha incorretos.", 401); }
-      return json({ token: issueToken({ role: "seller", uid: u.id }) });
-    }
-    if (!checkPassword(b.password)) { await new Promise((r) => setTimeout(r, 700)); return fail("Senha incorreta.", 401); }
-    return json({ token: issueToken({ role: "admin" }) });
+  if (["login", "signup", "forgot", "reset"].includes(kind) && m === "POST") {
+    if (!adminConfigured()) return fail("Defina a variável ADMIN_PASSWORD no Netlify para liberar o sistema.", 503);
+    return accountRoutes(req, url, kind);
   }
   const sess = session(req);
   if (!sess) return fail("Sessão expirada. Entre de novo.", 401);
+  if (sess.role === "super") return superRoutes(req, url, parts);
+  const company = await getCompany(sess.cid);
+  if (!company) return fail("Conta não encontrada. Entre de novo.", 401);
+  if (company.blocked && !sess.su) return fail("O acesso desta empresa está suspenso. Fale com o suporte do sistema.", 401);
+  if (sess.role === "admin" && !sess.su && sess.pv !== pwMark(company.owner)) return fail("A senha foi trocada. Entre de novo.", 401);
+  return withCompany(company.id, () => adminRoutes(req, context, url, parts, sess, company));
+}
+
+// login, criação de conta e nova senha
+async function accountRoutes(req, url, kind) {
+  const b = await req.json().catch(() => ({}));
+  const email = clean(b.email, 160).toLowerCase();
+  const pw = typeof b.password === "string" ? b.password : "";
+
+  if (kind === "login") {
+    if (!email) {
+      // dono do sistema: só a senha (ADMIN_PASSWORD)
+      if (!checkPassword(pw)) { await slow(); return fail("Senha incorreta.", 401); }
+      return json({ token: issueToken({ role: "super" }), role: "super" });
+    }
+    const l = await getLogin(email);
+    const c = l && (await getCompany(l.cid));
+    if (!c) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
+    if (!l.uid) {
+      if (!verifyPassword(pw, c.owner)) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
+      if (c.blocked) return fail("O acesso desta empresa está suspenso. Fale com o suporte do sistema.", 403);
+      return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
+    }
+    const u = await withCompany(c.id, () => getUser(l.uid));
+    if (!u || u.active === false || !verifyPassword(pw, u)) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
+    if (c.blocked) return fail("O acesso desta empresa está suspenso. Fale com o administrador da sua empresa.", 403);
+    return json({ token: issueToken({ role: "seller", cid: c.id, uid: u.id, pv: pwMark(u) }), role: "seller", company: c.id });
+  }
+
+  if (kind === "signup") {
+    if (b.website) return fail("Não foi possível criar a conta.", 400); // campo escondido: só robôs preenchem
+    if (env("SIGNUP_CLOSED") === "1") return fail("O cadastro de novas empresas está fechado no momento.", 403);
+    const name = clean(b.name, 120), companyName = clean(b.company, 120);
+    if (name.length < 3) return fail("Informe o seu nome.");
+    if (companyName.length < 2) return fail("Informe o nome da empresa (ou o seu nome, se você trabalha como freelancer).");
+    if (!validEmail(email)) return fail("Informe um e-mail válido.");
+    if (pw.length < 8) return fail("A senha precisa de pelo menos 8 caracteres.");
+    if (await getLogin(email)) { await slow(); return fail("Já existe uma conta com esse e-mail. Use Entrar ou Esqueci minha senha."); }
+    const c = { id: token(9), name: companyName, createdAt: nowISO(), blocked: false, owner: { name, email, ...hashPassword(pw) } };
+    await saveCompany(c);
+    await setLogin(email, { cid: c.id, uid: null });
+    await withCompany(c.id, async () => (await db()).set("settings", { agency: { name: companyName, email, representative: name } }));
+    return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
+  }
+
+  if (kind === "forgot") {
+    // resposta igual exista ou não a conta, para não revelar quais e-mails estão cadastrados
+    if (!emailEnabled()) return json({ ok: true, emailEnabled: false });
+    const l = validEmail(email) ? await getLogin(email) : null;
+    const c = l && (await getCompany(l.cid));
+    if (c) {
+      const tok = token(24);
+      await (await rootDb()).set("resets/" + sha256(tok).slice(0, 40), { email, exp: Date.now() + 3600e3 });
+      await withCompany(c.id, async () => {
+        await getSettings(); // usa a marca da empresa no e-mail
+        await sendEmail({ to: email, subject: "Crie uma nova senha", html: layout("Nova senha", `<p>Recebemos um pedido para criar uma nova senha de acesso ao painel de propostas de <b>${esc(c.name)}</b>.</p><p>O link vale por 1 hora. Se não foi você, ignore este e-mail: a senha atual continua valendo.</p>`, { url: `${url.origin}/admin#/nova-senha/${tok}`, label: "Criar nova senha" }) });
+      });
+    }
+    return json({ ok: true, emailEnabled: true });
+  }
+
+  if (kind === "reset") {
+    const tok = clean(b.token, 80);
+    const key = "resets/" + sha256(tok).slice(0, 40);
+    const r = tok ? await (await rootDb()).get(key) : null;
+    if (!r || !(r.exp > Date.now())) return fail("Este link de nova senha venceu ou já foi usado. Peça um novo em Esqueci minha senha.", 400);
+    if (pw.length < 8) return fail("A senha precisa de pelo menos 8 caracteres.");
+    const l = await getLogin(r.email);
+    const c = l && (await getCompany(l.cid));
+    if (!c) return fail("Conta não encontrada.", 404);
+    await (await rootDb()).del(key);
+    if (!l.uid) {
+      Object.assign(c.owner, hashPassword(pw));
+      await saveCompany(c);
+      return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
+    }
+    return withCompany(c.id, async () => {
+      const u = await getUser(l.uid);
+      if (!u || u.active === false) return fail("Acesso desativado. Fale com o administrador da sua empresa.", 403);
+      Object.assign(u, hashPassword(pw));
+      await saveUser(u);
+      return json({ token: issueToken({ role: "seller", cid: c.id, uid: u.id, pv: pwMark(u) }), role: "seller", company: c.id });
+    });
+  }
+  return fail("Rota não encontrada.", 404);
+}
+
+// painel do dono do sistema: empresas cadastradas, bloquear/liberar, nova senha e entrar no painel de uma empresa
+async function superRoutes(req, url, [kind, id, action]) {
+  const m = req.method;
+  const root = await rootDb();
+  if ((kind === "bootstrap" || kind === "companies") && m === "GET" && !id) {
+    const keys = await root.list("companies/");
+    const all = (await Promise.all(keys.map((k) => root.get(k)))).filter(Boolean);
+    const rows = await Promise.all(all.map(async (c) => {
+      const [ps, us] = await Promise.all([root.list(`e/${c.id}/proposals/`), root.list(`e/${c.id}/users/`)]);
+      return { ...companyPublic(c), proposals: ps.length, sellers: us.length };
+    }));
+    rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return json({ role: "super", companies: rows, emailEnabled: emailEnabled(), signupClosed: env("SIGNUP_CLOSED") === "1" });
+  }
+  if (kind !== "companies") return fail("Disponível no painel de uma empresa. Use Entrar no painel na lista de empresas.", 403);
+  const c = await getCompany(id);
+  if (!c) return fail("Empresa não encontrada.", 404);
+  if (m === "PUT" && !action) {
+    const b = await req.json().catch(() => ({}));
+    if ("blocked" in b) c.blocked = !!b.blocked;
+    await saveCompany(c);
+    return json({ company: companyPublic(c) });
+  }
+  if (m === "POST" && action === "reset") {
+    const pw = newPassword();
+    Object.assign(c.owner, hashPassword(pw));
+    await saveCompany(c);
+    return json({ company: companyPublic(c), password: pw });
+  }
+  if (m === "POST" && action === "enter") return json({ token: issueToken({ role: "admin", cid: c.id, su: true }), company: c.id });
+  return fail("Método não permitido.", 405);
+}
+
+async function adminRoutes(req, context, url, [kind, id, action], sess, company) {
+  const m = req.method;
+  const s = await db();
   const isAdm = sess.role === "admin";
   let me = null;
   if (!isAdm) {
     me = await getUser(sess.uid);
     if (!me || me.active === false) return fail("Acesso desativado. Fale com o administrador.", 401);
+    if (sess.pv !== pwMark(me)) return fail("A senha foi trocada. Entre de novo.", 401);
   }
   const settings = await getSettings();
+
+  // conta do responsável pela empresa: nome e senha
+  if (kind === "account") {
+    if (!isAdm) return fail("Disponível para o administrador da empresa.", 403);
+    if (m === "PUT") {
+      if (sess.su) return fail("Entre com o e-mail da empresa para mudar estes dados.", 403);
+      const b = await req.json().catch(() => ({}));
+      if ("name" in b) { if (clean(b.name, 120).length < 3) return fail("Informe o seu nome."); company.owner.name = clean(b.name, 120); }
+      let tok = null;
+      if (b.newPassword) {
+        if (!verifyPassword(b.currentPassword, company.owner)) return fail("Senha atual incorreta.");
+        if (String(b.newPassword).length < 8) return fail("A nova senha precisa de pelo menos 8 caracteres.");
+        Object.assign(company.owner, hashPassword(b.newPassword));
+        tok = issueToken({ role: "admin", cid: company.id, pv: pwMark(company.owner) });
+      }
+      await saveCompany(company);
+      return json({ company: companyPublic(company), token: tok });
+    }
+    return json({ company: companyPublic(company) });
+  }
   const owns = (p) => isAdm || (p && p.sellerId === me.id);
   const adminOnly = () => (isAdm ? null : fail("Somente o administrador pode fazer isso.", 403));
 
@@ -406,7 +591,7 @@ async function adminRoutes(req, context, url, [kind, id, action]) {
     const [proposals, contracts, catalog, users, folders] = await Promise.all([listDocs("proposals/"), listDocs("contracts/"), getCatalog(), listDocs("users/"), listDocs("folders/")]);
     const pub = isAdm ? settings : { agency: settings.agency, brand: settings.brand, whatsapp: settings.whatsapp, validityDays: settings.validityDays, sellersUseAgencySignature: settings.sellersUseAgencySignature, agencySignature: settings.agencySignature ? { name: settings.agencySignature.name } : null, openLink: false };
     return json({
-      role: sess.role, me: me ? userPublic(me) : null,
+      role: sess.role, me: me ? userPublic(me) : null, company: isAdm ? companyPublic(company) : { id: company.id, name: company.name }, su: !!sess.su,
       settings: pub, catalog, fonts: fontList(), emailEnabled: emailEnabled(), waEnabled: waEnabled(), emailSender: isAdm ? emailSender() : "", defaultTemplate: TEMPLATES.pt, templateVars: TEMPLATE_VARS, today: todayBR(),
       countries: COUNTRIES, currencies: CURRENCIES,
       users: isAdm ? users.map(userPublic) : [],
@@ -427,6 +612,9 @@ async function adminRoutes(req, context, url, [kind, id, action]) {
         if (!verifyPassword(b.currentPassword, me)) return fail("Senha atual incorreta.");
         if (String(b.newPassword).length < 8) return fail("A nova senha precisa de pelo menos 8 caracteres.");
         Object.assign(me, hashPassword(b.newPassword));
+        await saveUser(me);
+        // a senha nova encerra os outros acessos; este continua com um token novo
+        return json({ me: userPublic(me), signature: me.signature || null, token: issueToken({ role: "seller", cid: company.id, uid: me.id, pv: pwMark(me) }) });
       }
       await saveUser(me);
     }
@@ -441,11 +629,12 @@ async function adminRoutes(req, context, url, [kind, id, action]) {
       if (clean(b.name, 120).length < 5) return fail("Informe o nome completo do consultor.");
       if (!validEmail(email)) return fail("Informe um e-mail válido.");
       if (b.doc && !validDoc(b.doc)) return fail("CPF inválido.");
-      const users = await listDocs("users/");
-      if (users.some((u) => u.email === email)) return fail("Já existe um consultor com esse e-mail.");
+      // o e-mail é o login, então vale para o sistema todo (não pode repetir em outra empresa)
+      if (await getLogin(email)) return fail("Esse e-mail já está em uso no sistema. Use outro e-mail para este consultor.");
       const pw = newPassword();
       const u = { id: token(), name: clean(b.name, 120), doc: onlyDigits(b.doc), email, phone: clean(b.phone, 30), active: true, signature: null, createdAt: nowISO(), ...hashPassword(pw) };
       await saveUser(u);
+      await setLogin(email, { cid: company.id, uid: u.id });
       return json({ user: userPublic(u), password: pw });
     }
     const u = await getUser(id);
@@ -798,7 +987,7 @@ async function adminRoutes(req, context, url, [kind, id, action]) {
     const [ps, cs, us, fs] = await Promise.all([listDocs("proposals/"), listDocs("contracts/"), listDocs("users/"), listDocs("folders/")]);
     for (const x of ps.filter((x) => x.demo)) await s.del("proposals/" + x.id);
     for (const x of cs.filter((x) => x.demo)) await s.del("contracts/" + x.id);
-    for (const x of us.filter((x) => x.demo)) await s.del("users/" + x.id);
+    for (const x of us.filter((x) => x.demo)) { await s.del("users/" + x.id); if (x.email) { const l = await getLogin(x.email); if (l && l.uid === x.id) await delLogin(x.email); } }
     for (const x of fs.filter((x) => x.demo)) await s.del("folders/" + x.id);
     if (b.remove) return json({ removed: true });
     const catalog = (await getCatalog()).filter((x) => x.active !== false);
@@ -807,8 +996,10 @@ async function adminRoutes(req, context, url, [kind, id, action]) {
     const pool = catalog.filter((x, i, a) => !x.group || a.findIndex((y) => y.group === x.group) === i);
     const byId = (i) => pool[i % pool.length];
     const pw = newPassword();
-    const seller = { id: token(), demo: true, name: "Consultor de Teste", doc: "52998224725", email: "consultor.teste@exemplo.com", phone: "11999990000", active: true, signature: demo_signature, createdAt: nowISO(), ...hashPassword(pw) };
+    // e-mail fictício e único (o login vale para o sistema todo)
+    const seller = { id: token(), demo: true, name: "Consultor de Teste", doc: "52998224725", email: `consultor.teste.${token(4).toLowerCase().replace(/[^a-z0-9]/g, "x")}@exemplo.com`, phone: "11999990000", active: true, signature: demo_signature, createdAt: nowISO(), ...hashPassword(pw) };
     await saveUser(seller);
+    await setLogin(seller.email, { cid: company.id, uid: seller.id });
     const folder = { id: token(), demo: true, name: "Modelo de teste", ownerId: null, createdAt: nowISO() };
     await s.set("folders/" + folder.id, folder);
     const fake = { headers: req.headers, url: req.url };
@@ -938,6 +1129,8 @@ async function adminRoutes(req, context, url, [kind, id, action]) {
     if ("contractText" in b) cur.contractText = b.contractText && String(b.contractText).trim() ? String(b.contractText).slice(0, 60000) : null;
     if ("agencySignature" in b) cur.agencySignature = b.agencySignature && pngData(b.agencySignature.image) ? { name: clean(b.agencySignature.name, 160), doc: onlyDigits(b.agencySignature.doc), image: b.agencySignature.image, custom: true } : null;
     await s.set("settings", cur);
+    // nome da empresa na lista do dono do sistema acompanha Dados da empresa
+    if (cur.agency && cur.agency.name && cur.agency.name !== company.name) { company.name = cur.agency.name; await saveCompany(company); }
     return json({ settings: await getSettings() });
   }
 
