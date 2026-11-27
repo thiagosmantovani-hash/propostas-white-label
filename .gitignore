@@ -1,0 +1,6 @@
+node_modules
+.netlify
+dev/.data
+tests/output/*
+!tests/output/relatorio.md
+__pycache__/

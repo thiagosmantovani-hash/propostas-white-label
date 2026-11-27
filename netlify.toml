@@ -1,0 +1,68 @@
+# Sistema de propostas (white label)
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Links do cliente e painel
+[[redirects]]
+  from = "/p/*"
+  to = "/proposta.html"
+  status = 200
+
+[[redirects]]
+  from = "/c/*"
+  to = "/contrato.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin"
+  to = "/admin.html"
+  status = 200
+
+# Propostas e contratos não devem aparecer no Google
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Referrer-Policy = "same-origin"
+    X-Content-Type-Options = "nosniff"
+
+# Scripts e estilos sempre conferem a versão nova no servidor
+[[headers]]
+  for = "/assets/js/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/assets/css/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+# Páginas (painel, proposta e contrato) sempre buscam a versão mais nova
+[[headers]]
+  for = "/admin"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/p/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/c/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache"

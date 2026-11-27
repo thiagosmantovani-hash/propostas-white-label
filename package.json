@@ -1,0 +1,15 @@
+{
+  "name": "propostas-white-label",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev/server.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^10.0.0",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "fflate": "^0.8.3",
+    "nodemailer": "^6.10.1",
+    "pdf-lib": "^1.17.1"
+  }
+}

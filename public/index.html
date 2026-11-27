@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Propostas</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/svg+xml" href="/assets/icone.svg">
+<link rel="stylesheet" href="/assets/css/base.css?v=202611271400">
+<link rel="stylesheet" href="/api/public/brand.css">
+</head>
+<body>
+<section class="state"><div class="box">
+  <div id="logo"></div>
+  <h1 id="name">Propostas</h1>
+  <p>Você recebeu um link de proposta ou de contrato? Abra-o direto pela mensagem.</p>
+  <div class="hero-ctas"><a class="pill pill-green pill-lg" id="site" href="#" hidden>Visitar o site</a><a class="pill pill-line pill-lg" href="/admin">Acesso da equipe</a></div>
+</div></section>
+<script src="/assets/js/common.js?v=202611271400"></script>
+<script>
+// nome, logo e site da empresa (Dados da empresa)
+R.api("public/brand").then((b) => {
+  R.setBrand(b);
+  document.title = "Propostas · " + b.name;
+  R.$("#name").textContent = "Propostas · " + b.name;
+  R.$("#logo").innerHTML = R.logoHTML("escuro");
+  if (b.site) { const a = R.$("#site"); a.href = /^https?:/i.test(b.site) ? b.site : "https://" + b.site; a.hidden = false; }
+}).catch(() => {});
+</script>
+</body>
+</html>
