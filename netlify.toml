@@ -6,6 +6,13 @@
 [functions]
   node_bundler = "esbuild"
 
+# Página de divulgação (site de venda) no endereço principal
+[[redirects]]
+  from = "/"
+  to = "/inicio.html"
+  status = 200
+  force = true
+
 # Links do cliente e painel
 [[redirects]]
   from = "/p/*"
