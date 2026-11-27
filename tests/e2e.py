@@ -441,6 +441,7 @@ async def main():
             assert await C.locator(".sigs.three img").count() == 3, "faltam assinaturas na página"
             (OUT / "18-contrato-consultor.pdf").write_bytes(pdf)
             await shot(C, "18-contrato-assinado")
+            st["c_url"] = C.url
 
         async with Step("19 Consultor: contrato do Paraguai em espanhol, assinatura salva, liberar"):
             await go(V, f"#/proposta/{st['p_py']}"); await must(V, "#genBtn"); await V.click("#genBtn")
@@ -566,6 +567,28 @@ async def main():
             s_, b_ = api("admin/bootstrap", tok=d_["token"])
             assert len(b_["proposals"]) == 5, f"conta de teste com {len(b_['proposals'])} propostas"
             await admin_login(A)
+
+        async with Step("26c Tema claro e escuro: painel e página do cliente"):
+            await go(A, "#/"); await must(A, "#themeBtn")
+            await A.click("#themeBtn"); await A.wait_for_timeout(300)
+            assert await A.evaluate("document.documentElement.dataset.theme") == "claro", "o painel não trocou para o tema claro"
+            await A.reload(); await must(A, "#themeBtn")
+            assert await A.evaluate("document.documentElement.dataset.theme") == "claro", "o painel não lembrou o tema claro"
+            await shot(A, "26c-painel-tema-claro", full=False)
+            # página do cliente no tema claro
+            await go(A, "#/pagina"); await must(A, "#pageSave")
+            await A.click('.seg label:has-text("Claro")'); await A.click("#pageSave"); await A.wait_for_timeout(900)
+            await C.goto(st["c_url"]); await must(C, ".paper")
+            assert await C.evaluate("document.documentElement.dataset.theme") == "claro", "o contrato não abriu no tema claro"
+            # o papel do contrato segue claro com texto escuro
+            lum = await C.evaluate("""() => { const c = document.createElement('canvas').getContext('2d'); const L = (v) => { c.fillStyle = '#000'; c.fillStyle = v; c.fillRect(0, 0, 1, 1); const [r, g, b] = c.getImageData(0, 0, 1, 1).data; return (r + g + b) / 3; }; const s = getComputedStyle(document.querySelector('.paper')); return [L(s.color), L(s.backgroundColor)]; }""")
+            assert lum[0] + 80 < lum[1], f"texto do contrato sem contraste no tema claro: {lum}"
+            await shot(C, "26c-contrato-tema-claro")
+            # volta tudo para o escuro
+            await go(A, "#/pagina"); await must(A, "#pageSave")
+            await A.click('.seg label:has-text("Escuro")'); await A.click("#pageSave"); await A.wait_for_timeout(900)
+            await A.click("#themeBtn"); await A.wait_for_timeout(300)
+            assert not await A.evaluate("document.documentElement.dataset.theme"), "o painel não voltou ao tema escuro"
 
         async with Step("27 Modelo de teste: criar e conferir as cinco etapas"):
             await go(A, "#/config"); await must(A, "#demoMake")

@@ -82,7 +82,7 @@
 
       <section class="doc-sec wrap" id="contrato">
         <article class="paper">
-          <div class="ph">${R.logoHTML("claro")}<span>${t("c_label", { n: esc(C.number) })}</span></div>
+          <div class="ph">${R.logoHTML("claro", true)}<span>${t("c_label", { n: esc(C.number) })}</span></div>
           ${docHTML(C.text)}
           <div class="${sg.cls}" id="sigs">${sg.h}</div>
         </article>

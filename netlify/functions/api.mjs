@@ -127,7 +127,7 @@ function agencyPublic(settings, lang = "pt") {
     intro: t.intro || settings.intro, nextSteps: t.nextSteps || settings.nextSteps,
     tagline: b.tagline, about: custom("about") ? b.about : "", statValue: b.statValue, statLabel: b.statLabel, principles: custom("principles") ? b.principles : null,
     logos: b.logos, portfolio: b.portfolio.map((x) => ({ id: x.id, name: x.name, v: x.v })),
-    texts: cleanPageTexts(settings.pageTexts), layout: b.layout,
+    texts: cleanPageTexts(settings.pageTexts), layout: b.layout, theme: b.style && b.style.theme === "claro" ? "claro" : "escuro",
   };
 }
 // proposta fora do ar: despublicada pelo painel ou vencida sem pedido
