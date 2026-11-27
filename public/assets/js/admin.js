@@ -9,7 +9,9 @@
   const ST = { rascunho: "Rascunho", enviada: "Enviada", visualizada: "Visualizada", pedido: "Pedido recebido", contrato: "Aguardando assinatura", assinada: "Assinada", recusada: "Recusada", vencida: "Vencida" };
   const LANG = { pt: "Português", es: "Espanhol", en: "Inglês" };
   // Tema claro ou escuro do painel: escolha de cada pessoa, guardada neste navegador
-  R.setTheme(R.store.get("tema", "escuro"));
+  R.setTheme(R.store.get("tema", "claro")); // o painel abre no tema claro, como o site; o botão no topo troca
+  // símbolo do sistema (documento com visto), usado no login e no painel do dono
+  const FX_MARK = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="18" fill="#0e3b2c"/><path d="M21 15h16l8 8v25a2 2 0 0 1-2 2H21a2 2 0 0 1-2-2V17a2 2 0 0 1 2-2z" fill="none" stroke="#d4f26a" stroke-width="3.5" stroke-linejoin="round"/><path d="M36 15v9h9M25.5 36l4.5 4.5 8.5-9.5" stroke="#d4f26a" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
   const themeBtn = () => { const to = R.theme() === "claro" ? "escuro" : "claro"; return `<button class="pill pill-line theme-btn" type="button" id="themeBtn" title="Usar o tema ${to}" aria-label="Usar o tema ${to}">${to === "claro" ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>'}</button>`; };
   const bindTheme = (redraw) => { const b = $("#themeBtn"); if (b) b.addEventListener("click", () => { const t = R.theme() === "claro" ? "escuro" : "claro"; R.setTheme(t); R.store.set("tema", t); redraw(); }); };
   const stKey = (p) => (p.expired ? "vencida" : p.status);
@@ -122,17 +124,23 @@
       nova: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
     }[mode];
     app.innerHTML = `<section class="login">
-      <form id="loginForm" novalidate><div id="loginLogo"><span class="wordmark">Propostas</span></div>
+      <aside class="login-side">
+        <a class="back" href="/">← Voltar ao site</a>
+        <div><span class="tagp">Para empresas e freelancers</span><h2>Propostas que viram <mark>contrato assinado.</mark></h2><p>Monte a proposta com a sua marca, mande o link e acompanhe até a assinatura, tudo num lugar só.</p></div>
+        <ul><li>Propostas com a sua marca</li><li>Contrato e assinatura online</li><li>Envio por WhatsApp e e-mail</li></ul>
+      </aside>
+      <div class="login-main">
+      <form id="loginForm" novalidate><div id="loginLogo" class="fx-logo">${FX_MARK}<span class="wordmark">Fechaí</span></div>
         <div><span class="label" style="color:var(--primary-glow)">${H[0]}</span><h1 style="margin-top:10px">${H[1]}</h1></div>
         ${tabs ? `<div class="seg" role="tablist" aria-label="Entrar ou criar conta"><button type="button" role="tab" data-mode="entrar" aria-selected="${mode === "entrar"}" class="${mode === "entrar" ? "on" : ""}">Entrar</button><button type="button" role="tab" data-mode="criar" aria-selected="${mode === "criar"}" class="${mode === "criar" ? "on" : ""}">Criar conta</button></div>` : ""}
         ${body}
         <p class="form-msg" id="lmsg" role="alert" style="margin:0">${esc(msg || "")}</p>
         <button class="pill pill-green pill-lg" type="submit">${btn}</button>
         ${foot}
-        </form></section>`;
+        </form></div></section>`;
     // nome do sistema e cadastro aberto/fechado (painel do dono)
     R.api("public/system").then((y) => {
-      const l = $("#loginLogo"); if (l) l.innerHTML = `<span class="wordmark">${esc(y.productName)}</span>`;
+      const l = $("#loginLogo"); if (l) l.innerHTML = `${FX_MARK}<span class="wordmark">${esc(y.productName)}</span>`;
       if (!y.signupOpen) { const t = $('[data-mode="criar"]'); if (t) t.remove(); if (mode === "criar") login("entrar", "O cadastro de novas contas está fechado no momento."); }
     }).catch(() => {});
     const f0 = $("#loginForm input:not([tabindex='-1'])"); if (f0) f0.focus();
@@ -186,7 +194,7 @@
     const host = location.host;
     const lim = (c) => (c.maxSellers ? `${c.sellers} de ${c.maxSellers}` : `${c.sellers}`);
     app.innerHTML = `<header class="adm-top wrap"><div class="inner">
-        <a class="brand" href="/dono"><span class="wordmark">${esc(sys.productName)}</span></a><span class="tag">Painel do dono</span>
+        <a class="brand fx-logo" href="/dono">${FX_MARK}<span class="wordmark">${esc(sys.productName)}</span></a><span class="tag">Painel do dono</span>
         <nav><a class="pill pill-line" href="#sup-cfg">Configurações</a><a class="pill pill-line" href="#sup-contas">Contas</a>${themeBtn()}<button class="pill pill-line" type="button" id="logout">Sair</button></nav>
       </div></header><main class="adm-main wrap"><div class="inner">
       <div class="pgh"><div><span class="label">Dono do sistema</span><h1>Painel do dono</h1><p class="sub">Controle o sistema todo: regras para as contas novas, avisos, cadastro aberto ou fechado e cada conta cadastrada.</p></div>
@@ -1316,7 +1324,7 @@
   /* ---------- dados da empresa (white label) ---------- */
   // Tudo que identifica a empresa: dados do contrato, contato, logo, cores, fontes, textos, remetente dos e-mails,
   // assinatura padrão e galeria de trabalhos. Logos e imagens são salvos na hora; o resto no botão Salvar.
-  const DEF_COLORS = { primary: "#3b63d9", accent: "#e07b39", dark: "#111318", light: "#f2f0ea" };
+  const DEF_COLORS = { primary: "#1f6049", accent: "#d4f26a", dark: "#0e2a20", light: "#f4f7f1" };
   const COLOR_LABEL = { primary: ["Cor principal", "Botões e destaques"], accent: ["Cor de destaque", "Títulos em destaque e detalhes"], dark: ["Fundo escuro", "Fundo das páginas e textos sobre fundo claro"], light: ["Fundo claro", "Textos sobre fundo escuro e áreas claras"] };
   // Textos da página da proposta (Dados da empresa): o exemplo de cada campo é o texto padrão do sistema
   const TX_LABEL = {
@@ -1385,17 +1393,17 @@
 
   /* ---------- página da proposta (modelo, aparência e textos) ---------- */
   const LAYOUT_INFO = {
-    neutro: ["Neutro", "Serve para qualquer negócio. Sóbrio, com títulos fortes."],
+    neutro: ["Neutro", "O visual padrão do sistema. Serve para qualquer negócio: verde escuro, verde-limão e cantos arredondados."],
     saude: ["Saúde", "Clínicas, consultórios e bem-estar. Tons suaves e cantos arredondados."],
     construcao: ["Construção", "Obras, reformas e engenharia. Contraste forte e cantos retos."],
     tecnologia: ["Tecnologia", "Software, TI e serviços digitais. Moderno, com degradê no topo."],
   };
   const SECTION_LABEL = [["boas-vindas", "Boas-vindas"], ["principios", "Número em destaque e Como trabalhamos"], ["etapas", "Etapas"], ["galeria", "Galeria de trabalhos"], ["agradecimento", "Agradecimento"]];
-  const CORNER_PX = { reto: ["3px", "0px"], suave: ["10px", "12px"], redondo: ["999px", "20px"] };
+  const CORNER_PX = { reto: ["3px", "0px", "0px", "0px"], suave: ["10px", "14px", "18px", "10px"], redondo: ["14px", "24px", "32px", "14px"] };
   const exampleUrl = () => `/p/exemplo?e=${encodeURIComponent(S.data.company.id)}&k=${encodeURIComponent(S.data.exampleKey || "")}`;
   function pagina() {
     const st = S.data.settings, b = st.brand || {}, LY = S.data.layouts || {};
-    if (!S.pg) S.pg = { layout: b.layout || "neutro", colors: { ...DEF_COLORS, ...(b.colors || {}) }, fontTitle: b.fontTitle || "archivo", fontText: b.fontText || "alexandria", style: { caps: true, corners: "redondo", hero: "escuro", hide: [], ...(b.style || {}) } };
+    if (!S.pg) S.pg = { layout: b.layout || "neutro", colors: { ...DEF_COLORS, ...(b.colors || {}) }, fontTitle: b.fontTitle || "alexandria", fontText: b.fontText || "alexandria", style: { caps: false, corners: "redondo", hero: "marca", hide: [], ...(b.style || {}) } };
     const G = S.pg, C = G.colors, fonts = S.data.fonts || [];
     const fontSel = (id, cur) => `<select class="sel" id="${id}">${fonts.map(([k, l]) => `<option value="${k}"${k === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
     const tpl = (k) => { const L = LY[k] || { colors: DEF_COLORS }, c = L.colors; return `<button type="button" class="tpl${G.layout === k ? " on" : ""}" data-tpl="${k}" aria-pressed="${G.layout === k}">
@@ -1450,10 +1458,16 @@
   }
 
   // CSS dos ajustes finos: o mesmo que /api/public/brand.css gera (netlify/lib/brand.mjs, styleCss)
+  // contraste automático (o mesmo de netlify/lib/brand.mjs, contrastVars)
+  function contrastVars(c) {
+    const lum = (hex) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const dark = lum(c.dark) < 0.2 ? c.dark : "#111111", on = (x) => (lum(x) > 0.4 ? dark : "#ffffff"), ink = (x) => (lum(x) > 0.4 ? `color-mix(in srgb,${x} 42%,${dark})` : x);
+    return `--on-primary:${on(c.primary)};--on-accent:${on(c.accent)};--accent-ink:${ink(c.accent)};--primary-ink:${ink(c.primary)};`;
+  }
   function pageStyleCss(G) {
     const c = CORNER_PX[G.style.corners] || CORNER_PX.redondo, st = G.style;
     const hide = { "boas-vindas": '#boas-vindas,a[href="#boas-vindas"]', principios: ".about-side", etapas: '#etapas,a[href="#etapas"]', galeria: ".brands", agradecimento: ".statement" };
-    let css = `:root{--c-dark:${G.colors.dark};--c-light:${G.colors.light};--primary:${G.colors.primary};--accent:${G.colors.accent};--tt:${st.caps ? "uppercase" : "none"};--r-pill:${c[0]};--r-card:${c[1]};--hero-bg:${st.hero === "marca" ? "linear-gradient(135deg,var(--primary-deep),var(--night) 75%)" : "var(--night)"}}\n`;
+    let css = `:root{--c-dark:${G.colors.dark};--c-light:${G.colors.light};--primary:${G.colors.primary};--accent:${G.colors.accent};${contrastVars(G.colors)}--tt:${st.caps ? "uppercase" : "none"};--r-pill:${c[0]};--r-card:${c[1]};--r-sec:${c[2]};--sec-gap:${c[3]};--hero-bg:${st.hero === "marca" ? "linear-gradient(135deg,var(--primary-deep),var(--night) 75%)" : "var(--night)"}}\n`;
     const h = st.hide.map((k) => hide[k]).filter(Boolean);
     if (h.length) css += `${h.join(",")}{display:none!important}\n`;
     return css;

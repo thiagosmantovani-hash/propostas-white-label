@@ -305,7 +305,7 @@ async def main():
             await A.wait_for_timeout(600)
             await shot(A, "02b-pagina-da-proposta")
             css = urllib.request.urlopen(BASE + "/api/public/brand.css?e=" + COMPANY["id"]).read().decode()
-            assert "#0f766e" in css and "--tt:none" in css and "--r-card:12px" in css, css
+            assert "#0f766e" in css and "--tt:none" in css and "--r-card:14px" in css and "--on-primary:" in css, css
             # a prévia só abre com a chave do painel
             try:
                 urllib.request.urlopen(BASE + "/api/public/proposal/exemplo?e=" + COMPANY["id"] + "&k=errada"); raise AssertionError("prévia aberta sem chave")
@@ -569,12 +569,15 @@ async def main():
             await admin_login(A)
 
         async with Step("26c Tema claro e escuro: painel e página do cliente"):
+            # o painel abre no tema claro; o botão troca para o escuro e o navegador lembra a escolha
             await go(A, "#/"); await must(A, "#themeBtn")
-            await A.click("#themeBtn"); await A.wait_for_timeout(300)
-            assert await A.evaluate("document.documentElement.dataset.theme") == "claro", "o painel não trocou para o tema claro"
-            await A.reload(); await must(A, "#themeBtn")
-            assert await A.evaluate("document.documentElement.dataset.theme") == "claro", "o painel não lembrou o tema claro"
+            assert await A.evaluate("document.documentElement.dataset.theme") == "claro", "o painel não abriu no tema claro"
             await shot(A, "26c-painel-tema-claro", full=False)
+            await A.click("#themeBtn"); await A.wait_for_timeout(300)
+            assert not await A.evaluate("document.documentElement.dataset.theme"), "o painel não trocou para o tema escuro"
+            await A.reload(); await must(A, "#themeBtn")
+            assert not await A.evaluate("document.documentElement.dataset.theme"), "o painel não lembrou o tema escuro"
+            await shot(A, "26c-painel-tema-escuro", full=False)
             # página do cliente no tema claro
             await go(A, "#/pagina"); await must(A, "#pageSave")
             await A.click('.seg label:has-text("Claro")'); await A.click("#pageSave"); await A.wait_for_timeout(900)
@@ -588,7 +591,7 @@ async def main():
             await go(A, "#/pagina"); await must(A, "#pageSave")
             await A.click('.seg label:has-text("Escuro")'); await A.click("#pageSave"); await A.wait_for_timeout(900)
             await A.click("#themeBtn"); await A.wait_for_timeout(300)
-            assert not await A.evaluate("document.documentElement.dataset.theme"), "o painel não voltou ao tema escuro"
+            assert await A.evaluate("document.documentElement.dataset.theme") == "claro", "o painel não voltou ao tema claro"
 
         async with Step("27 Modelo de teste: criar e conferir as cinco etapas"):
             await go(A, "#/config"); await must(A, "#demoMake")
