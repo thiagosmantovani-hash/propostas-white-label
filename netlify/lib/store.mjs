@@ -31,12 +31,19 @@ function fileStore(dir) {
       await fs.writeFile(f, JSON.stringify(value, null, 2));
     },
     async del(key) { try { await fs.unlink(file(key)); } catch {} },
+    // lista também as subpastas, como o Netlify Blobs faz com um prefixo
     async list(prefix) {
-      const d = path.join(dir, prefix);
-      try {
-        const names = await fs.readdir(d);
-        return names.filter((n) => n.endsWith(".json")).map((n) => prefix + n.slice(0, -5));
-      } catch { return []; }
+      const walk = async (rel) => {
+        let ents = [];
+        try { ents = await fs.readdir(path.join(dir, rel), { withFileTypes: true }); } catch { return []; }
+        const out = [];
+        for (const e of ents) {
+          if (e.isDirectory()) out.push(...(await walk(rel + e.name + "/")));
+          else if (e.name.endsWith(".json")) out.push(rel + e.name.slice(0, -5));
+        }
+        return out;
+      };
+      return walk(prefix);
     },
   };
 }

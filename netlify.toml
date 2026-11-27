@@ -29,6 +29,17 @@
   to = "/admin.html"
   status = 200
 
+# Login das contas (empresas e consultores) e login exclusivo do dono do sistema
+[[redirects]]
+  from = "/entrar"
+  to = "/admin.html"
+  status = 200
+
+[[redirects]]
+  from = "/dono"
+  to = "/admin.html"
+  status = 200
+
 # Propostas e contratos não devem aparecer no Google
 [[headers]]
   for = "/*"
@@ -56,6 +67,16 @@
 # Páginas (painel, proposta e contrato) sempre buscam a versão mais nova
 [[headers]]
   for = "/admin"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/entrar"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/dono"
   [headers.values]
     Cache-Control = "no-cache"
 

@@ -9,7 +9,9 @@ Sistema de montagem, envio e assinatura de propostas para empresas e freelancers
 - Login com e-mail e senha em `/admin` (o responsável e os consultores usam a mesma tela). O e-mail é único no sistema todo. **Esqueci minha senha** manda um link válido por 1 hora (precisa do e-mail do sistema configurado, abaixo).
 - Em **Minha conta** o responsável troca o nome e a senha. Trocar a senha encerra os acessos abertos com a senha antiga.
 - Os links do cliente (`/p/...`, `/c/...`) continuam iguais e mostram a marca da empresa certa. O link aberto fica em `/p/aberta?e=<id da empresa>` (aparece pronto em Configurações).
-- **Dono do sistema**: em `/admin`, **Acesso do dono do sistema**, com a senha `ADMIN_PASSWORD`. Mostra todas as empresas (responsável, data, propostas, consultores), permite bloquear/liberar o acesso, gerar uma senha nova para o responsável e entrar no painel de qualquer empresa para dar suporte. Empresa bloqueada não entra no painel, mas os links já enviados aos clientes continuam abrindo.
+- **Três endereços**: `/` página de divulgação e cadastro; `/entrar` login das contas (empresas e consultores); `/dono` login exclusivo do dono do sistema (o login das contas não mostra esse acesso).
+- **Painel do dono** (`/dono`, senha `ADMIN_PASSWORD`): visão geral (contas, novas e ativas em 7 dias, propostas, contratos); configurações do sistema (nome do sistema, cadastro aberto/fechado, limite de consultores por conta, validade padrão das propostas das contas novas, aviso no topo do painel de todas as contas); links prontos para copiar; conta modelo de teste; e a lista de contas com busca, filtro e as ações criar conta, editar (empresa, responsável, e-mail de acesso, limite de consultores, anotação interna), entrar no painel, nova senha, bloquear/liberar e excluir (pede o nome da conta; apaga dados, logins e links). Empresa bloqueada não entra no painel, mas os links já enviados aos clientes continuam abrindo.
+- **Conta modelo de teste**: login `conta.teste@example.com`, senha `teste1234` (compartilhado com quem for testar; nome e senha não mudam). Nasce no primeiro login e o dono pode recriar do zero no painel.
 - `SIGNUP_CLOSED=1` fecha o cadastro de novas empresas.
 
 ## Dados da empresa (white label)
@@ -39,7 +41,7 @@ Sem nada preenchido, o sistema usa uma identidade neutra ("Sua empresa").
 
 O sistema começa com o catálogo vazio. Cada empresa cadastra os próprios serviços em **Serviços** no painel (botão **Novo serviço**): nome, descrição, o que está incluso, etapas, prazo e formas de pagamento. Enquanto o catálogo estiver vazio, a tela de nova proposta, o link aberto e o modelo de teste avisam que falta cadastrar serviços.
 
-Os testes usam um catálogo de exemplo próprio (`tests/catalogo-exemplo.mjs`), que não vai para o sistema.
+A conta modelo de teste e os testes usam um catálogo de exemplo fictício (`netlify/lib/catalogo-exemplo.mjs`); as contas novas começam vazias.
 
 ## Consultores
 

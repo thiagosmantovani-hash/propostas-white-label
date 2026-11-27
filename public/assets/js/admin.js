@@ -3,6 +3,8 @@
   "use strict";
   const { $, $$, esc } = R;
   const app = $("#app");
+  // /dono: login exclusivo do dono do sistema; /entrar e /admin: login das contas
+  const DONO = /^\/dono\/?$/.test(location.pathname);
   const S = { token: R.store.get("adm", ""), data: null, filter: "todas", q: "", seller: "", edit: null, cat: null, catOpen: null, catLang: "pt", detail: null, padAgency: null, padInter: null, padCfg: null, padMe: null, showText: false, loginAs: R.store.get("admAs", "admin"), userOpen: null, newPw: null };
   const ST = { rascunho: "Rascunho", enviada: "Enviada", visualizada: "Visualizada", pedido: "Pedido recebido", contrato: "Aguardando assinatura", assinada: "Assinada", recusada: "Recusada", vencida: "Vencida" };
   const LANG = { pt: "Português", es: "Espanhol", en: "Inglês" };
@@ -38,7 +40,7 @@
     R.store.set("empresa", S.data.company.id);
     R.setBrand({ ...st.agency, e: S.data.company.id, whatsapp: st.whatsapp, logos: (st.brand && st.brand.logos) || {} });
   }
-  function logout(msg) { S.token = ""; S.data = null; R.store.set("adm", ""); R.store.set("admSuper", ""); R.store.set("empresa", ""); R.setBrand({}); if (location.hash && !/^#\/?$/.test(location.hash)) history.replaceState(null, "", "#/"); login("entrar", typeof msg === "string" ? msg : ""); }
+  function logout(msg) { if (DONO) { S.token = ""; S.data = null; R.store.set("adm", ""); R.store.set("admSuper", ""); R.store.set("empresa", ""); R.setBrand({}); history.replaceState(null, "", "/dono"); return login("dono", typeof msg === "string" ? msg : ""); } S.token = ""; S.data = null; R.store.set("adm", ""); R.store.set("admSuper", ""); R.store.set("empresa", ""); R.setBrand({}); if (location.hash && !/^#\/?$/.test(location.hash)) history.replaceState(null, "", "#/"); login("entrar", typeof msg === "string" ? msg : ""); }
 
   async function copy(text, ok = "Link copiado.") {
     try { await navigator.clipboard.writeText(text); R.toast(ok); }
@@ -112,7 +114,7 @@
       entrar: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="esqueci">Esqueci minha senha</button></p>',
       criar: '<p class="muted small" style="margin:0">Cada conta tem o seu próprio painel: propostas, contratos, clientes e equipe só da sua empresa.</p>',
       esqueci: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
-      dono: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
+      dono: '<p class="muted small" style="margin:0">Acesso exclusivo do dono do sistema.</p>',
       nova: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
     }[mode];
     app.innerHTML = `<section class="login">
@@ -123,7 +125,12 @@
         <p class="form-msg" id="lmsg" role="alert" style="margin:0">${esc(msg || "")}</p>
         <button class="pill pill-green pill-lg" type="submit">${btn}</button>
         ${foot}
-        ${mode === "entrar" ? '<p class="muted small" style="margin:0;opacity:.7"><button type="button" class="link-btn" data-mode="dono">Acesso do dono do sistema</button></p>' : ""}</form></section>`;
+        </form></section>`;
+    // nome do sistema e cadastro aberto/fechado (painel do dono)
+    R.api("public/system").then((y) => {
+      const l = $("#loginLogo"); if (l) l.innerHTML = `<span class="wordmark">${esc(y.productName)}</span>`;
+      if (!y.signupOpen) { const t = $('[data-mode="criar"]'); if (t) t.remove(); if (mode === "criar") login("entrar", "O cadastro de novas contas está fechado no momento."); }
+    }).catch(() => {});
     const f0 = $("#loginForm input:not([tabindex='-1'])"); if (f0) f0.focus();
     $$("[data-mode]").forEach((b) => b.addEventListener("click", () => { if (mode === "nova") history.replaceState(null, "", "#/"); login(b.dataset.mode); }));
     $("#loginForm").addEventListener("submit", async (e) => {
@@ -164,42 +171,135 @@
   }
 
   /* ---------- painel do dono do sistema ---------- */
+  // visão geral, configurações do sistema e ações rápidas vêm antes da lista de contas
   function superPanel() {
-    const cs = S.data.companies || [];
-    const dt = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "");
+    const D = S.data, sys = D.system, st = D.stats;
+    const cs = D.companies || [];
+    const q = (S.supQ || "").trim().toLowerCase();
+    const f = S.supF || "todas";
+    const rows = cs.filter((c) => (f === "ativas" ? !c.blocked : f === "bloqueadas" ? c.blocked : true)).filter((c) => !q || `${c.name} ${c.owner.name} ${c.owner.email} ${c.note}`.toLowerCase().includes(q));
+    const dt = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "nunca");
+    const host = location.host;
+    const lim = (c) => (c.maxSellers ? `${c.sellers} de ${c.maxSellers}` : `${c.sellers}`);
     app.innerHTML = `<header class="adm-top wrap"><div class="inner">
-        <a class="brand" href="#/"><span class="wordmark">Painel do dono</span></a><span class="tag">Dono do sistema</span>
-        <nav><button class="pill pill-line" type="button" id="logout">Sair</button></nav>
+        <a class="brand" href="/dono"><span class="wordmark">${esc(sys.productName)}</span></a><span class="tag">Painel do dono</span>
+        <nav><a class="pill pill-line" href="#sup-cfg">Configurações</a><a class="pill pill-line" href="#sup-contas">Contas</a><button class="pill pill-line" type="button" id="logout">Sair</button></nav>
       </div></header><main class="adm-main wrap"><div class="inner">
-      <div class="pgh"><div><span class="label">Sistema</span><h1>Empresas cadastradas</h1><p class="sub">Cada empresa ou freelancer cria a conta sozinho em ${esc(location.host)}/admin e só enxerga os próprios dados. Aqui você acompanha todas, bloqueia ou libera o acesso e entra no painel de qualquer uma para dar suporte.</p></div></div>
-      <div class="tiles" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:24px"><div class="tile"><span>Empresas</span><b>${cs.length}</b></div><div class="tile"><span>Ativas</span><b>${cs.filter((c) => !c.blocked).length}</b></div><div class="tile"><span>Propostas no total</span><b>${cs.reduce((a, c) => a + c.proposals, 0)}</b></div></div>
-      ${S.data.emailEnabled ? "" : '<div class="warnbox"><span>O envio de e-mail do sistema não está ativo, então o “Esqueci minha senha” não manda o link. Quando alguém pedir, use “Nova senha” na linha da empresa.</span></div>'}
+      <div class="pgh"><div><span class="label">Dono do sistema</span><h1>Painel do dono</h1><p class="sub">Controle o sistema todo: regras para as contas novas, avisos, cadastro aberto ou fechado e cada conta cadastrada.</p></div>
+        <div class="acts"><button type="button" class="pill pill-green pill-lg" id="supNewBtn">Criar conta</button></div></div>
+      <div class="tiles" style="margin-bottom:24px">
+        <div class="tile"><span>Contas</span><b>${st.companies}</b><small>${st.active} ativas · ${st.blocked} bloqueadas</small></div>
+        <div class="tile"><span>Novas em 7 dias</span><b>${st.new7}</b><small>${st.active7} entraram nos últimos 7 dias</small></div>
+        <div class="tile"><span>Propostas</span><b>${st.proposals}</b><small>somando todas as contas</small></div>
+        <div class="tile"><span>Contratos</span><b>${st.contracts}</b><small>gerados em todas as contas</small></div>
+      </div>
       <div id="supOut"></div>
-      ${cs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Empresa</th><th>Responsável</th><th>Criada em</th><th>Propostas</th><th>Consultores</th><th>Situação</th><th class="r">Ações</th></tr></thead><tbody>
-        ${cs.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.owner.name)}<br><span class="muted small">${esc(c.owner.email)}</span></td><td>${dt(c.createdAt)}</td><td>${c.proposals}</td><td>${c.sellers}</td><td><span class="st ${c.blocked ? "recusada" : "assinada"}">${c.blocked ? "Bloqueada" : "Ativa"}</span></td>
-          <td class="r"><div class="row-acts" style="justify-content:flex-end"><button type="button" class="pill pill-green pill-sm" data-enter="${esc(c.id)}">Entrar no painel</button><button type="button" class="pill pill-line pill-sm" data-reset="${esc(c.id)}">Nova senha</button><button type="button" class="pill ${c.blocked ? "pill-cream" : "pill-line"} pill-sm" data-block="${esc(c.id)}" data-on="${c.blocked ? 0 : 1}">${c.blocked ? "Liberar" : "Bloquear"}</button></div></td></tr>`).join("")}
-      </tbody></table></div>` : '<div class="card"><div class="empty"><b>Nenhuma empresa ainda</b><span>Quando alguém criar a conta em Criar conta, ela aparece aqui.</span></div></div>'}
+      <div class="cols" id="sup-cfg">
+        <div class="stack">
+          <div class="card"><h2>Configurações do sistema</h2>
+            <label class="fl"><span>Nome do sistema (aparece no login e neste painel)</span><input class="inp" id="sName" maxlength="60" value="${esc(sys.productName)}"></label>
+            <label class="check"><input type="checkbox" id="sOpen"${sys.signupOpen !== false ? " checked" : ""}${D.signupEnvClosed ? " disabled" : ""}><span>Cadastro aberto: qualquer pessoa pode criar conta pela página de divulgação${D.signupEnvClosed ? " (fechado pela variável SIGNUP_CLOSED no Netlify)" : ""}</span></label>
+            <div class="grid2">
+              <label class="fl"><span>Consultores por conta (0 = sem limite)</span><input class="inp" id="sMax" type="number" min="0" max="500" value="${esc(sys.defaultMaxSellers)}"></label>
+              <label class="fl"><span>Validade das propostas nas contas novas (dias)</span><input class="inp" id="sDays" type="number" min="1" max="365" value="${esc(sys.defaultValidityDays)}"></label>
+            </div>
+            <label class="fl"><span>Aviso para todas as contas (aparece no topo do painel delas; deixe vazio para não mostrar)</span><textarea class="inp" id="sNotice" rows="2" maxlength="400">${esc(sys.notice || "")}</textarea></label>
+            <div class="row-acts"><button type="button" class="pill pill-green" id="sSave">Salvar configurações</button></div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card"><h2>Links</h2>
+            <p class="muted small" style="margin:0">Página de divulgação e cadastro</p><div class="linkbox"><input class="inp" readonly value="${location.protocol}//${esc(host)}/"><button type="button" class="pill pill-cream" data-copy="${location.protocol}//${esc(host)}/">Copiar</button></div>
+            <p class="muted small" style="margin:0">Login das contas (empresas e consultores)</p><div class="linkbox"><input class="inp" readonly value="${location.protocol}//${esc(host)}/entrar"><button type="button" class="pill pill-cream" data-copy="${location.protocol}//${esc(host)}/entrar">Copiar</button></div>
+            <p class="muted small" style="margin:0">Login do dono (só você)</p><div class="linkbox"><input class="inp" readonly value="${location.protocol}//${esc(host)}/dono"><button type="button" class="pill pill-cream" data-copy="${location.protocol}//${esc(host)}/dono">Copiar</button></div>
+          </div>
+          <div class="card"><h2>Conta modelo de teste</h2>
+            <p class="muted small" style="margin:0">Conta pronta para quem for testar: dados da empresa, catálogo de exemplo, um consultor e cinco propostas, uma em cada etapa. Entre em /entrar com:</p>
+            <p style="margin:0">E-mail <code class="pw">${esc(D.demoEmail)}</code> · senha <code class="pw">${esc(D.demoPassword)}</code></p>
+            <div class="row-acts"><button type="button" class="pill pill-cream" id="demoAcc">${cs.some((c) => c.demo) ? "Recriar do zero" : "Criar conta de teste"}</button></div>
+          </div>
+          <div class="card"><h2>Situação do sistema</h2>
+            <p class="small" style="margin:0">E-mail automático: <b>${D.emailEnabled ? "ativo" : "desligado"}</b>${D.emailEnabled ? "" : " (sem ele, “Esqueci minha senha” não envia o link; use Nova senha na conta)"}</p>
+            <p class="small" style="margin:0">WhatsApp automático: <b>${D.waEnabled ? "ativo" : "desligado"}</b></p>
+          </div>
+        </div>
+      </div>
+      <div class="pgh" id="sup-contas" style="margin-top:32px"><div><span class="label">Contas</span><h2 style="margin:6px 0 0">Contas cadastradas</h2></div></div>
+      <div class="row-acts" style="margin-bottom:12px;flex-wrap:wrap"><input class="inp" id="supQ" placeholder="Buscar por empresa, responsável, e-mail ou anotação" value="${esc(S.supQ || "")}" style="flex:1;min-width:220px">
+        ${[["todas", "Todas"], ["ativas", "Ativas"], ["bloqueadas", "Bloqueadas"]].map(([k, t]) => `<button type="button" class="pill ${f === k ? "on" : "pill-line"} pill-sm" data-supf="${k}">${t}</button>`).join("")}</div>
+      ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Conta</th><th>Responsável</th><th>Criada</th><th>Último acesso</th><th>Propostas</th><th>Consultores</th><th>Situação</th><th class="r">Ações</th></tr></thead><tbody>
+        ${rows.map((c) => `<tr><td><b>${esc(c.name)}</b>${c.demo ? ' <span class="muted small">(teste)</span>' : ""}${c.note ? `<br><span class="muted small">${esc(c.note)}</span>` : ""}</td><td>${esc(c.owner.name)}<br><span class="muted small">${esc(c.owner.email)}</span></td><td>${dt(c.createdAt)}<br><span class="muted small">${c.createdBy === "dono" ? "por você" : "cadastro"}</span></td><td>${dt(c.lastLoginAt)}</td><td>${c.proposals}</td><td>${lim(c)}</td><td><span class="st ${c.blocked ? "recusada" : "assinada"}">${c.blocked ? "Bloqueada" : "Ativa"}</span></td>
+          <td class="r"><div class="row-acts" style="justify-content:flex-end;flex-wrap:wrap"><button type="button" class="pill pill-green pill-sm" data-enter="${esc(c.id)}">Entrar</button><button type="button" class="pill pill-line pill-sm" data-edit="${esc(c.id)}">Editar</button><button type="button" class="pill pill-line pill-sm" data-reset="${esc(c.id)}">Nova senha</button><button type="button" class="pill ${c.blocked ? "pill-cream" : "pill-line"} pill-sm" data-block="${esc(c.id)}" data-on="${c.blocked ? 0 : 1}">${c.blocked ? "Liberar" : "Bloquear"}</button><button type="button" class="pill pill-line pill-sm" data-del="${esc(c.id)}">Excluir</button></div></td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="card"><div class="empty"><b>${cs.length ? "Nenhuma conta com esse filtro" : "Nenhuma conta ainda"}</b><span>${cs.length ? "Mude a busca ou o filtro." : "Quando alguém criar a conta pela página de divulgação, ela aparece aqui. Você também pode criar em Criar conta."}</span></div></div>`}
       </div></main>`;
-    $("#logout").addEventListener("click", logout);
-    const name = (id) => (cs.find((c) => c.id === id) || {}).name || "";
+    $("#logout").addEventListener("click", () => logout());
+    const byId = (id) => cs.find((c) => c.id === id) || {};
+    const out = (html) => { $("#supOut").innerHTML = html; $("#supOut").scrollIntoView({ behavior: "smooth", block: "center" }); };
+    const refresh = async (msg) => { await reload(); superPanel(); if (msg) R.toast(msg); };
+    $$("[data-copy]").forEach((b) => b.addEventListener("click", () => { navigator.clipboard && navigator.clipboard.writeText(b.dataset.copy); R.toast("Link copiado."); }));
+    $("#supQ").addEventListener("input", (e) => { S.supQ = e.target.value; const pos = e.target.selectionStart; superPanel(); const i = $("#supQ"); i.focus(); i.setSelectionRange(pos, pos); });
+    $$("[data-supf]").forEach((b) => b.addEventListener("click", () => { S.supF = b.dataset.supf; superPanel(); }));
+    $("#sSave").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Salvando…");
+      try { await put("system", { productName: $("#sName").value.trim(), signupOpen: $("#sOpen").checked, defaultMaxSellers: $("#sMax").value, defaultValidityDays: $("#sDays").value, notice: $("#sNotice").value.trim() }); await refresh("Configurações salvas."); }
+      catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
+    });
+    $("#demoAcc").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      if (cs.some((c) => c.demo) && !(await confirmModal({ title: "Recriar a conta de teste?", html: "<p>Tudo o que foi feito na conta de teste é apagado e ela volta ao modelo inicial. O login continua o mesmo.</p>", confirm: "Recriar" }))) return;
+      busy(btn, true, "Criando…");
+      try { const r = await post("demo-account"); await refresh("Conta de teste pronta."); out(`<div class="okbox"><span>Conta de teste pronta. Entre em <b>/entrar</b> com <code class="pw">${esc(r.email)}</code> e a senha <code class="pw">${esc(r.password)}</code>.</span></div>`); }
+      catch (err) { R.toast(err.message); busy(btn, false); }
+    });
+    $("#supNewBtn").addEventListener("click", async () => {
+      const v = await confirmModal({ eyebrow: "Nova conta", title: "Criar conta", tone: "green", confirm: "Criar conta",
+        html: `<p class="muted small">A senha é gerada e aparece aqui para você enviar ao responsável. Ele pode trocar depois em Minha conta.</p>
+          <label class="fl"><span>Nome do responsável</span><input class="inp" id="nwName"></label>
+          <label class="fl"><span>Nome da empresa</span><input class="inp" id="nwCo"></label>
+          <label class="fl"><span>E-mail de acesso</span><input class="inp" id="nwEm" type="email"></label>
+          <label class="fl"><span>Anotação interna (só você vê)</span><input class="inp" id="nwNote" maxlength="400"></label>`,
+        getValue: (w) => ({ name: $("#nwName", w).value.trim(), company: $("#nwCo", w).value.trim(), email: $("#nwEm", w).value.trim(), note: $("#nwNote", w).value.trim() }) });
+      if (!v) return;
+      try { const r = await post("companies", v); await refresh("Conta criada."); out(`<div class="okbox"><span>Conta <b>${esc(r.company.name)}</b> criada. Login em /entrar com <code class="pw">${esc(r.company.owner.email)}</code> e a senha <code class="pw">${esc(r.password)}</code>.</span></div>`); }
+      catch (err) { R.toast(err.message); }
+    });
+    $$("[data-edit]").forEach((b) => b.addEventListener("click", async () => {
+      const c = byId(b.dataset.edit);
+      const v = await confirmModal({ eyebrow: "Conta", title: "Editar " + esc(c.name), tone: "green", confirm: "Salvar",
+        html: `<label class="fl"><span>Nome da empresa</span><input class="inp" id="edCo" value="${esc(c.name)}"></label>
+          <label class="fl"><span>Nome do responsável</span><input class="inp" id="edName" value="${esc(c.owner.name)}"></label>
+          <label class="fl"><span>E-mail de acesso do responsável</span><input class="inp" id="edEm" type="email" value="${esc(c.owner.email)}"></label>
+          <label class="fl"><span>Limite de consultores (vazio = padrão do sistema; 0 = sem limite)</span><input class="inp" id="edMax" type="number" min="0" max="500" value="${c.maxSellersOwn != null ? esc(c.maxSellersOwn) : ""}"></label>
+          <label class="fl"><span>Anotação interna (só você vê)</span><input class="inp" id="edNote" maxlength="400" value="${esc(c.note || "")}"></label>`,
+        getValue: (w) => ({ company: $("#edCo", w).value.trim(), ownerName: $("#edName", w).value.trim(), ownerEmail: $("#edEm", w).value.trim(), maxSellers: $("#edMax", w).value === "" ? null : $("#edMax", w).value, note: $("#edNote", w).value.trim() }) });
+      if (!v) return;
+      try { await put(`companies/${c.id}`, v); await refresh("Conta atualizada."); } catch (err) { R.toast(err.message); }
+    }));
     $$("[data-enter]").forEach((b) => b.addEventListener("click", async () => {
       busy(b, true, "Entrando…");
       try { const r = await post(`companies/${b.dataset.enter}/enter`); R.store.set("admSuper", S.token); S.token = r.token; R.store.set("adm", r.token); R.store.set("empresa", r.company); location.hash = "#/"; await start(); }
       catch (e) { R.toast(e.message); busy(b, false); }
     }));
     $$("[data-reset]").forEach((b) => b.addEventListener("click", async () => {
-      const ok = await confirmModal({ title: "Gerar nova senha?", html: `<p>A senha atual de <b>${esc(name(b.dataset.reset))}</b> deixa de valer e a nova aparece aqui para você enviar ao responsável.</p>`, confirm: "Gerar nova senha", tone: "green" });
+      const c = byId(b.dataset.reset);
+      const ok = await confirmModal({ title: "Gerar nova senha?", html: `<p>A senha atual de <b>${esc(c.name)}</b> deixa de valer e a nova aparece aqui para você enviar ao responsável.</p>`, confirm: "Gerar nova senha", tone: "green" });
       if (!ok) return;
       busy(b, true, "Gerando…");
-      try { const r = await post(`companies/${b.dataset.reset}/reset`); $("#supOut").innerHTML = `<div class="okbox"><span>Nova senha de <b>${esc(name(b.dataset.reset))}</b> (${esc(r.company.owner.email)}): <code class="pw">${esc(r.password)}</code>. Envie para o responsável; a senha antiga deixou de valer.</span></div>`; }
+      try { const r = await post(`companies/${c.id}/reset`); out(`<div class="okbox"><span>Nova senha de <b>${esc(c.name)}</b> (${esc(r.company.owner.email)}): <code class="pw">${esc(r.password)}</code>. Envie para o responsável; a senha antiga deixou de valer.</span></div>`); }
       catch (e) { R.toast(e.message); }
       busy(b, false);
     }));
     $$("[data-block]").forEach((b) => b.addEventListener("click", async () => {
       const on = b.dataset.on === "1";
       busy(b, true, "Salvando…");
-      try { await put(`companies/${b.dataset.block}`, { blocked: on }); await reload(); superPanel(); R.toast(on ? "Empresa bloqueada: a equipe dela não consegue mais entrar. Os links já enviados aos clientes continuam abrindo." : "Acesso liberado."); }
+      try { await put(`companies/${b.dataset.block}`, { blocked: on }); await refresh(on ? "Conta bloqueada: a equipe dela não consegue mais entrar. Os links já enviados aos clientes continuam abrindo." : "Acesso liberado."); }
       catch (e) { R.toast(e.message); busy(b, false); }
+    }));
+    $$("[data-del]").forEach((b) => b.addEventListener("click", async () => {
+      const c = byId(b.dataset.del);
+      const v = await confirmModal({ title: "Excluir " + esc(c.name) + "?", html: `<p>Apaga a conta e tudo o que é dela: propostas, contratos, clientes, consultores, marca e catálogo. Os links já enviados aos clientes param de abrir. <b>Não dá para desfazer.</b></p><label class="fl"><span>Para confirmar, digite: ${esc(c.name)}</span><input class="inp" id="delName" autocomplete="off"></label>`, confirm: "Excluir para sempre", getValue: (w) => $("#delName", w).value.trim() });
+      if (!v) return;
+      try { await api(`companies/${c.id}`, { method: "DELETE", body: JSON.stringify({ confirm: v }) }); await refresh("Conta excluída."); } catch (err) { R.toast(err.message); }
     }));
   }
   async function backToSuper() {
@@ -248,7 +348,7 @@
     const nav = isAdm()
       ? [["#/", "Propostas", "list"], ["#/servicos", "Serviços", "cat"], ["#/equipe", "Equipe", "team"], ["#/empresa", "Empresa", "biz"], ["#/config", "Configurações", "cfg"], ...(S.data.su ? [] : [["#/conta", "Minha conta", "acc"]])]
       : [["#/", "Propostas", "list"], ["#/perfil", "Meu perfil", "me"]];
-    app.innerHTML = `${S.data.su ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>Você está no painel de <b>${esc(S.data.company.name)}</b> como dono do sistema.</span><button type="button" class="pill pill-cream pill-sm" id="suBack">Voltar à lista de empresas</button></div>` : ""}<header class="adm-top wrap"><div class="inner">
+    app.innerHTML = `${S.data.notice ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>${esc(S.data.notice)}</span></div>` : ""}${S.data.su ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>Você está no painel de <b>${esc(S.data.company.name)}</b> como dono do sistema.</span><button type="button" class="pill pill-cream pill-sm" id="suBack">Voltar à lista de empresas</button></div>` : ""}<header class="adm-top wrap"><div class="inner">
         <a class="brand" href="#/">${R.logoHTML("escuro")}</a><span class="tag">${isAdm() ? "Propostas" : "Consultor · " + esc(first(me().name))}</span>
         <nav>${nav.map(([h, t, k]) => `<a class="pill ${active === k ? "on" : "pill-line"}" href="${h}">${t}</a>`).join("")}<a class="pill pill-green" href="#/nova">Nova proposta</a><button class="pill pill-line" type="button" id="logout">Sair</button></nav>
       </div></header><main class="adm-main wrap"><div class="inner">${html}</div></main>`;
@@ -261,7 +361,8 @@
   async function start() {
     app.innerHTML = R.loadingHTML("Carregando o painel…");
     try { await reload(); } catch (e) { if (S.token) app.innerHTML = R.stateHTML("Não foi possível carregar", esc(e.message), '<button class="pill pill-green pill-lg" onclick="location.reload()">Tentar de novo</button>'); return; }
-    if (S.data.role === "super") return superPanel();
+    if (S.data.role === "super") { R.store.set("empresa", ""); refreshBrandCss(); return superPanel(); } // painel do dono com a identidade neutra
+    if (DONO && !S.data.su) return login("dono"); // /dono é só do dono do sistema
     refreshBrandCss();
     route();
   }
@@ -1576,6 +1677,7 @@
 
   /* ---------- início ---------- */
   if (/^#\/nova-senha\//.test(location.hash)) login("nova");
+  else if (DONO && !S.token) login("dono");
   else if (S.token) start();
   else login(/^#\/criar-conta/.test(location.hash) ? "criar" : "entrar");
 })();
