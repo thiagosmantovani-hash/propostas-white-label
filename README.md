@@ -4,13 +4,13 @@ Sistema de montagem, envio e assinatura de propostas para empresas e freelancers
 
 ## Contas (várias empresas no mesmo sistema)
 
-- Qualquer empresa ou freelancer cria a conta em `/admin#/criar-conta` (ou no botão **Criar conta** da página inicial): nome, nome da empresa, e-mail e senha. Já entra no painel dela, vazio, começando por **Empresa**.
+- Qualquer empresa ou freelancer cria a conta em `/admin#/criar-conta` (ou no botão **Criar conta** da página inicial): nome, nome da empresa, **WhatsApp** e senha. A conta só nasce depois de digitar o código de 6 números que chega no WhatsApp informado (vale 10 minutos), então ninguém cria conta com o número de outra pessoa. Já entra no painel dela, vazio, começando por **Empresa**.
 - Cada conta tem a sua "gaveta" de dados (`e/<id da empresa>/...` no Blobs): propostas, contratos, clientes, pastas, catálogo, consultores, marca e contrato. Uma empresa nunca lê nem grava os dados de outra (ver `netlify/lib/store.mjs`).
-- Login com e-mail e senha em `/admin` (o responsável e os consultores usam a mesma tela). O e-mail é único no sistema todo. **Esqueci minha senha** manda um link válido por 1 hora (precisa do e-mail do sistema configurado, abaixo).
+- Login com **WhatsApp e senha** em `/entrar` (o responsável e os consultores usam a mesma tela). O WhatsApp é único no sistema todo. **Esqueci minha senha** manda um código no WhatsApp para criar a senha nova. Em **Conta e plano** (ou **Meu perfil**, para o consultor) a pessoa troca o número, também com código no número novo. Contas criadas pelo dono e consultores confirmam o número com código no primeiro acesso. Contas antigas e a conta modelo de teste ainda entram com o e-mail.
 - Em **Minha conta** o responsável troca o nome e a senha. Trocar a senha encerra os acessos abertos com a senha antiga.
 - Os links do cliente (`/p/...`, `/c/...`) continuam iguais e mostram a marca da empresa certa. O link aberto fica em `/p/aberta?e=<id da empresa>` (aparece pronto em Configurações).
 - **Três endereços**: `/` página de divulgação e cadastro; `/entrar` login das contas (empresas e consultores); `/dono` login exclusivo do dono do sistema (o login das contas não mostra esse acesso).
-- **Painel do dono** (`/dono`, senha `ADMIN_PASSWORD`): visão geral (contas, novas e ativas em 7 dias, propostas, contratos); configurações do sistema (nome do sistema, cadastro aberto/fechado, limite de consultores por conta, validade padrão das propostas das contas novas, aviso no topo do painel de todas as contas); links prontos para copiar; conta modelo de teste; e a lista de contas com busca, filtro e as ações criar conta, editar (empresa, responsável, e-mail de acesso, limite de consultores, anotação interna), entrar no painel, nova senha, bloquear/liberar e excluir (pede o nome da conta; apaga dados, logins e links). Empresa bloqueada não entra no painel, mas os links já enviados aos clientes continuam abrindo.
+- **Painel do dono** (`/dono`, senha `ADMIN_PASSWORD`): visão geral (contas, novas e ativas em 7 dias, propostas, contratos); configurações do sistema (nome do sistema, cadastro aberto/fechado, limite de consultores por conta, validade padrão das propostas das contas novas, aviso no topo do painel de todas as contas); links prontos para copiar; conta modelo de teste; e a lista de contas com busca, filtro e as ações criar conta (com o WhatsApp do responsável), editar (empresa, responsável, WhatsApp de acesso, limite de consultores, anotação interna), entrar no painel, nova senha, bloquear/liberar e excluir (pede o nome da conta; apaga dados, logins e links). Empresa bloqueada não entra no painel, mas os links já enviados aos clientes continuam abrindo.
 - **Conta modelo de teste**: login `conta.teste@example.com`, senha `teste1234` (compartilhado com quem for testar; nome e senha não mudam). Nasce no primeiro login e o dono pode recriar do zero no painel.
 - `SIGNUP_CLOSED=1` fecha o cadastro de novas empresas.
 
@@ -45,7 +45,7 @@ A conta modelo de teste e os testes usam um catálogo de exemplo fictício (`net
 ## Consultores
 
 - O administrador cadastra consultores em Equipe (#/equipe) e recebe uma senha gerada para enviar a eles.
-- O consultor entra em /admin com e-mail e senha. Ele vê só as propostas dele, completa CPF e assinatura em Meu perfil, gera o contrato e assina como intermediador e testemunha.
+- O consultor entra em /entrar com o WhatsApp e a senha (no primeiro acesso confirma o número com o código). Ele vê só as propostas dele, completa CPF e assinatura em Meu perfil, gera o contrato e assina como intermediador e testemunha.
 - Com a opção "Consultores podem liberar contratos com a assinatura padrão da empresa" ligada, ele libera o contrato e a assinatura padrão é aplicada, com registro de quem liberou. Desligada, só o administrador libera.
 
 ## Contrato
@@ -73,14 +73,22 @@ Veja `tests/README.md`. O pente fino completo roda com `python3 tests/e2e.py`, e
 - Fora do Brasil, o cliente informa documento e endereço livres; o contrato sai em espanhol ou inglês, com pagamento por transferência internacional e foro no Brasil. Esses dois modelos são fixos no código (netlify/lib/contract.mjs).
 - No Brasil, o CEP preenche o endereço (ViaCEP) e a cidade é escolhida numa lista com os 5.570 municípios.
 
-## E-mails pelo Gmail
+## Confirmação por WhatsApp (cadastro, primeiro acesso e nova senha)
 
-Com `GMAIL_USER` (ex.: propostas.suaempresa@gmail.com) e `GMAIL_APP_PASSWORD` (senha de app do Google, criada em myaccount.google.com/apppasswords com a verificação em duas etapas ativa), o sistema envia:
-- ao cliente: confirmação do pedido, link do contrato e cópia assinada em PDF;
-- à empresa (e-mail salvo em Dados da empresa) e ao consultor: avisos de pedido, recusa e assinatura;
-- a quem pediu: o link de **Esqueci minha senha**.
-O endereço que envia é do sistema todo; o nome que aparece é o da empresa de cada conta.
-Nunca use a senha normal da conta. `EMAIL_TEST=1` registra os envios sem mandar nada (para testes; lista em /api/public/__emails).
+O sistema não envia e-mails. O acesso é pelo número de WhatsApp, confirmado por um código de 6 números (10 minutos de validade, 5 tentativas, 45 segundos entre reenvios, até 5 códigos por hora por número; por padrão só números do Brasil, `OTP_COUNTRIES=55`).
+
+**Recomendado: WhatsApp Cloud API oficial da Meta** (`WHATSAPP_PROVIDER=meta`). Passo a passo:
+1. Em business.facebook.com, tenha um Portfólio empresarial verificado (CNPJ) e, em developers.facebook.com, crie um app do tipo Empresa com o produto WhatsApp.
+2. Cadastre um número só para o sistema (não pode estar em uso no aplicativo do WhatsApp) e adicione uma forma de pagamento na conta do WhatsApp Business.
+3. Em Gerenciador do WhatsApp › Modelos de mensagem, crie um modelo da categoria **Autenticação**, nome `codigo_de_acesso`, idioma Português (BR), com o botão **Copiar código** e o aviso de segurança. A Meta aprova em minutos ou horas.
+4. Crie um usuário do sistema com permissão no app e na conta do WhatsApp e gere um token permanente (`whatsapp_business_messaging`).
+5. No Netlify: `WHATSAPP_PROVIDER=meta`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` (ID do número, não o número) e, se mudar, `WHATSAPP_TEMPLATE` e `WHATSAPP_TEMPLATE_LANG`. Faça um novo deploy e confira no painel do dono (Situação do sistema).
+
+Custo: a Meta cobra por mensagem de autenticação entregue (no Brasil, alguns centavos de real por código).
+
+**Alternativa: Twilio Verify** (`WHATSAPP_PROVIDER=twilio`, com `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` e `TWILIO_VERIFY_SID`): a Twilio cuida do número e do modelo; custa US$ 0,05 por confirmação feita, mais a tarifa da Meta.
+
+**Testes:** `OTP_TEST=1` (ou `WHATSAPP_PROVIDER=teste`) não envia nada; os códigos ficam em `/api/public/__codes`. Nunca ligue isso no site no ar. Sem nenhum provedor configurado, ninguém consegue criar conta nem pedir senha nova.
 
 ## Resumo do mês
 
@@ -96,7 +104,8 @@ Em **Resumo** (`/admin#/resumo`), mês a mês: valor fechado (projetos e mensali
 ## Segurança
 
 - Sessões assinadas com uma chave que junta `ADMIN_PASSWORD` com `SESSION_SECRET` (ou, sem ela, uma chave aleatória criada uma vez e guardada no armazenamento). Trocar `ADMIN_PASSWORD` encerra todos os acessos.
-- Limite de tentativas: 8 senhas erradas por e-mail (ou na senha do dono) e 30 por IP em 15 minutos; cadastro, “Esqueci minha senha”, nova senha e pedidos pelo link aberto também têm limite.
+- Limite de tentativas: 8 senhas erradas por número (ou na senha do dono) e 30 por IP em 15 minutos; cadastro, “Esqueci minha senha”, nova senha, códigos do WhatsApp e pedidos pelo link aberto também têm limite.
+- Cadastro, primeiro acesso, nova senha e troca de número só com o código que chega no WhatsApp; o código não fica guardado (só o resumo criptográfico dele).
 - Cabeçalhos em `netlify.toml`: política de conteúdo (só scripts do próprio site), proibido abrir as páginas dentro de outros sites, HTTPS obrigatório, sem câmera, microfone e localização.
 - Erros internos mostram só um código; o detalhe fica no registro do Netlify.
 
@@ -111,12 +120,13 @@ Em **Resumo** (`/admin#/resumo`), mês a mês: valor fechado (projetos e mensali
 |---|---|---|
 | `ADMIN_PASSWORD` | sim | Senha do dono do sistema (painel com todas as empresas) |
 | `SESSION_SECRET` | recomendada | Texto aleatório longo; reforça a sessão do painel |
-| `GMAIL_USER` e `GMAIL_APP_PASSWORD` | não | Liga os e-mails automáticos pelo Gmail (ou use `RESEND_API_KEY` e `EMAIL_FROM`) |
+| `WHATSAPP_PROVIDER` | sim, para cadastrar | `meta` (recomendado), `twilio` ou `teste` |
+| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` | com `meta` | Token permanente e ID do número na Meta (`WHATSAPP_TEMPLATE` padrão `codigo_de_acesso`) |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SID` | com `twilio` | Twilio Verify |
+| `OTP_COUNTRIES` | não | Países que recebem código (padrão `55`) |
 | `BILLING_PROVIDER` | não | `manual` (padrão), `asaas` ou `stripe`, quando a integração estiver feita |
 | `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` | não | Cobrança pelo Asaas (quando ligada) |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | não | Cobrança pelo Stripe (quando ligada) |
-| `RESEND_API_KEY` | não | Liga os e-mails automáticos (resend.com) |
-| `EMAIL_FROM` | não | Remetente verificado no Resend, ex.: `propostas@seudominio.com.br` (o nome é o da empresa) |
 | `SIGNUP_CLOSED` | não | `1` fecha o cadastro de novas empresas |
 | `BLOBS_STORE` | não | Nome do armazenamento no Netlify Blobs. Padrão `propostas` |
 
@@ -131,7 +141,7 @@ public/                 páginas e arquivos estáticos (publish)
   contrato.html         página do contrato  (/c/*)
   assets/css, js, fonts, logo, portfolio
 netlify/functions/api.mjs   API única em /api/*
-netlify/lib/            catálogo, modelo de contrato, PDF, e-mail, login, armazenamento
+netlify/lib/            catálogo, modelo de contrato, PDF, confirmação por WhatsApp, cobrança, login, armazenamento
 dev/server.mjs          servidor local para testes
 ```
 
@@ -139,7 +149,7 @@ dev/server.mjs          servidor local para testes
 
 ```bash
 npm install
-npm run dev          # http://localhost:8888  · crie uma conta em /admin; senha local do dono do sistema: teste123
+OTP_TEST=1 npm run dev   # http://localhost:8888  · crie uma conta em /admin; senha local do dono do sistema: teste123
 ```
 
 Os dados locais ficam em `dev/.data` (ignorado pelo git).

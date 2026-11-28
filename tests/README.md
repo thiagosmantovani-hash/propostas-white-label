@@ -12,13 +12,13 @@
 7. Pastas, arrastar para a pasta, arquivar, desarquivar, excluir (assinadas ficam protegidas).
 8. Separação entre empresas (outra conta não vê nada) e painel do dono do sistema.
 9. Modelo de teste das Configurações e telas no celular.
-10. Configurações sem e-mails e WhatsApp automático, galeria em Página da proposta, assinatura só com nome e CPF/CNPJ, Resumo do mês (com a planilha), Plano e pagamento (pedido e pagamento pelo dono), conta vencida só para consulta, página de divulgação com os preços do sistema e segurança (limite de senhas, cabeçalhos, token forjado).
+10. Cadastro com código no WhatsApp (código errado recusado, conta só existe depois do código), consultor confirma o número no primeiro acesso, nova senha por código e troca de número. Configurações sem e-mails e WhatsApp automático, galeria em Página da proposta, assinatura só com nome e CPF/CNPJ, Resumo do mês (com a planilha), Plano e pagamento (pedido e pagamento pelo dono), conta vencida só para consulta, página de divulgação com os preços do sistema e segurança (limite de senhas, cabeçalhos, token forjado).
 
 ## Como rodar
 
 ```
 pip install playwright && python3 -m playwright install chromium
-node dev/server.mjs                 # terminal 1 (senha local do dono do sistema: teste123)
+OTP_TEST=1 node dev/server.mjs      # terminal 1 (senha local do dono do sistema: teste123)
 python3 tests/e2e.py                # terminal 2
 ```
 

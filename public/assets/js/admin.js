@@ -99,39 +99,43 @@
 
   /* ---------- entrar, criar conta e nova senha ---------- */
   // modos: entrar | criar | esqueci | dono (dono do sistema) | nova (link de nova senha)
+  // Acesso pelo WhatsApp: entrar (WhatsApp + senha), criar conta e nova senha, sempre com código enviado no WhatsApp.
+  // S.otp guarda a etapa do código: { flow: "criar" | "entrar" | "esqueci", login, masked, payload }
   function login(mode, msg) {
     mode = mode || "entrar";
-    const resetTok = mode === "nova" ? (location.hash.match(/^#\/nova-senha\/([\w-]+)/) || [])[1] || "" : "";
+    if (mode === "nova") mode = "esqueci"; // links antigos de nova senha por e-mail
     const tabs = mode === "entrar" || mode === "criar";
+    const O = S.otp || {};
     const H = {
       entrar: ["Acesso ao painel", "Entrar"],
       criar: ["Comece agora", "Criar conta"],
       esqueci: ["Esqueci minha senha", "Nova senha"],
       dono: ["Dono do sistema", "Painel do dono"],
-      nova: ["Nova senha", "Criar nova senha"],
+      codigo: ["Confirmação no WhatsApp", O.flow === "esqueci" ? "Criar nova senha" : "Digite o código"],
     }[mode] || ["", ""];
-    const fld = (id, label, type, ac, extra = "") => `<div class="field"><label for="${id}">${label}</label><input id="${id}" type="${type}" autocomplete="${ac}" required${extra}></div>`;
+    const fld = (id, label, type, ac, extra = "", hint = "") => `<div class="field"><label for="${id}">${label}</label><input id="${id}" type="${type}" autocomplete="${ac}" required${extra}>${hint ? `<span class="hint">${hint}</span>` : ""}</div>`;
+    const tel = (label, hint = "") => fld("tel", label, "tel", "tel", ' inputmode="tel" placeholder="(44) 99999-0000"', hint);
     const body = {
-      entrar: fld("em", "E-mail", "email", "username") + fld("pw", "Senha", "password", "current-password"),
-      criar: fld("nm", "Seu nome", "text", "name", ' maxlength="120"') + fld("co", "Nome da empresa (ou o seu, se for freelancer)", "text", "organization", ' maxlength="120"') + fld("em", "E-mail", "email", "username") + fld("pw", "Senha (mínimo 8 caracteres)", "password", "new-password", ' minlength="8"') +
+      entrar: tel("WhatsApp", "Conta antiga ou de teste? Use o e-mail.").replace('type="tel"', 'type="text"') + fld("pw", "Senha", "password", "current-password"),
+      criar: fld("nm", "Seu nome", "text", "name", ' maxlength="120"') + fld("co", "Nome da empresa (ou o seu, se for freelancer)", "text", "organization", ' maxlength="120"') + tel("Seu WhatsApp", "Você recebe um código nele para confirmar a conta.") + fld("pw", "Senha (mínimo 8 caracteres)", "password", "new-password", ' minlength="8"') +
         '<div style="position:absolute;left:-9999px" aria-hidden="true"><label>Site <input id="ws" tabindex="-1" autocomplete="off"></label></div>',
-      esqueci: '<p class="muted small" style="margin:0">Informe o e-mail de acesso. Se ele estiver cadastrado, você recebe um link para criar uma senha nova.</p>' + fld("em", "E-mail", "email", "username"),
+      esqueci: '<p class="muted small" style="margin:0">Informe o WhatsApp da conta. Se ele estiver cadastrado, você recebe um código para criar uma senha nova.</p>' + tel("WhatsApp"),
       dono: fld("pw", "Senha do dono do sistema", "password", "current-password"),
-      nova: fld("pw", "Nova senha (mínimo 8 caracteres)", "password", "new-password", ' minlength="8"'),
+      codigo: `<p class="muted small" style="margin:0">Enviamos um código de 6 números para o WhatsApp <b>${esc(O.masked || "")}</b>. Ele vale por 10 minutos.</p>` + fld("code", "Código", "text", "one-time-code", ' inputmode="numeric" maxlength="6" pattern="[0-9]*"') + (O.flow === "esqueci" ? fld("pw", "Nova senha (mínimo 8 caracteres)", "password", "new-password", ' minlength="8"') : ""),
     }[mode];
-    const btn = { entrar: "Entrar", criar: "Criar minha conta", esqueci: "Enviar link", dono: "Entrar", nova: "Salvar e entrar" }[mode];
+    const btn = { entrar: "Entrar", criar: "Criar minha conta", esqueci: "Enviar código", dono: "Entrar", codigo: O.flow === "criar" ? "Confirmar e criar a conta" : O.flow === "esqueci" ? "Salvar e entrar" : "Confirmar e entrar" }[mode];
     const foot = {
       entrar: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="esqueci">Esqueci minha senha</button></p>',
-      criar: '<p class="muted small" style="margin:0" id="trialNote">Comece grátis por 7 dias, depois só R$ 19,90 por mês. Cada conta tem o seu próprio painel: propostas, contratos, clientes e equipe só da sua empresa.</p>',
+      criar: '<p class="muted small" style="margin:0" id="trialNote">Comece grátis por 7 dias, depois só R$ 19,90 por mês. A conta só é criada depois de confirmar o código no seu WhatsApp.</p>',
       esqueci: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
       dono: '<p class="muted small" style="margin:0">Acesso exclusivo do dono do sistema.</p>',
-      nova: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
+      codigo: `<p class="muted small" style="margin:0;display:flex;gap:14px;flex-wrap:wrap"><button type="button" class="link-btn" id="resend" disabled>Reenviar código</button><button type="button" class="link-btn" data-mode="${O.flow === "esqueci" ? "esqueci" : O.flow || "entrar"}">Trocar o número</button></p>`,
     }[mode];
     app.innerHTML = `<section class="login">
       <aside class="login-side">
         <a class="back" href="/">← Voltar ao site</a>
         <div><span class="tagp">Para empresas e freelancers</span><h2>Propostas que viram <mark>contrato assinado.</mark></h2><p>Monte a proposta com a sua marca, mande o link e acompanhe até a assinatura, tudo num lugar só.</p></div>
-        <ul><li>Propostas com a sua marca</li><li>Contrato fácil e assinatura online</li><li>Envio por WhatsApp e e-mail</li><li>Resumo do mês com o que foi fechado</li></ul>
+        <ul><li>Propostas com a sua marca</li><li>Contrato fácil e assinatura online</li><li>Acesso protegido pelo seu WhatsApp</li><li>Resumo do mês com o que foi fechado</li></ul>
       </aside>
       <div class="login-main">
       <form id="loginForm" novalidate><div id="loginLogo" class="fx-logo">${FX_MARK}<span class="wordmark">Fechaí</span></div>
@@ -142,50 +146,76 @@
         <button class="pill pill-green pill-lg" type="submit">${btn}</button>
         ${foot}
         </form></div></section>`;
-    // nome do sistema e cadastro aberto/fechado (painel do dono)
+    // nome do sistema, preço e cadastro aberto/fechado (painel do dono)
     R.api("public/system").then((y) => {
       const l = $("#loginLogo"); if (l) l.innerHTML = `${FX_MARK}<span class="wordmark">${esc(y.productName)}</span>`;
-      const tn = $("#trialNote"); if (tn && y.plans) tn.textContent = `Comece grátis por ${y.plans.trialDays} dias, depois só ${mny(y.plans.mensal)} por mês. Cada conta tem o seu próprio painel: propostas, contratos, clientes e equipe só da sua empresa.`;
+      const tn = $("#trialNote"); if (tn && y.plans) tn.textContent = `Comece grátis por ${y.plans.trialDays} dias, depois só ${mny(y.plans.mensal)} por mês. A conta só é criada depois de confirmar o código no seu WhatsApp.`;
       if (!y.signupOpen) { const t = $('[data-mode="criar"]'); if (t) t.remove(); if (mode === "criar") login("entrar", "O cadastro de novas contas está fechado no momento."); }
     }).catch(() => {});
     const f0 = $("#loginForm input:not([tabindex='-1'])"); if (f0) f0.focus();
-    $$("[data-mode]").forEach((b) => b.addEventListener("click", () => { if (mode === "nova") history.replaceState(null, "", "#/"); login(b.dataset.mode); }));
+    $$("[data-mode]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.mode !== "codigo") S.otp = null; login(b.dataset.mode); }));
+    const telIn = $("#tel"); if (telIn && mode !== "entrar") telIn.addEventListener("input", () => (telIn.value = maskTel(telIn.value)));
+    const out = $("#lmsg");
+    const post0 = async (path, payload) => {
+      const r = await fetch("/api/admin/" + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { const e = new Error(d.error || "Não foi possível concluir agora."); e.wait = d.wait; throw e; }
+      return d;
+    };
+    const toCode = (flow, loginV, d, payload) => { S.otp = { flow, login: loginV, masked: d.phone, payload, cooldown: d.cooldown || 45 }; login("codigo"); };
+    // reenviar o código: mesmo pedido de novo, com espera entre os envios
+    const rs = $("#resend");
+    if (rs) {
+      let left = O.cooldown || 45; const tick = () => { rs.disabled = left > 0; rs.textContent = left > 0 ? `Reenviar código (${left}s)` : "Reenviar código"; if (left-- > 0) S.otpT = setTimeout(tick, 1000); };
+      clearTimeout(S.otpT); tick();
+      rs.addEventListener("click", async () => {
+        try { const d = await post0(O.flow === "criar" ? "signup" : O.flow === "esqueci" ? "forgot" : "login", O.payload); O.cooldown = d.cooldown || 45; left = O.cooldown; tick(); out.className = "form-msg ok"; out.textContent = "Código reenviado."; }
+        catch (err) { out.className = "form-msg"; out.textContent = err.message; if (err.wait) { left = err.wait; tick(); } }
+      });
+    }
     $("#loginForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const b = e.target.querySelector("button[type=submit]");
+      const b = e.submitter || $("#loginForm button[type=submit]");
       const val = (id) => ($("#" + id) ? $("#" + id).value.trim() : "");
       const pw = $("#pw") ? $("#pw").value : "";
-      const out = $("#lmsg");
+      out.className = "form-msg"; out.textContent = "";
+      const telOk = (v) => { const d = R.digits(v); return /^\+/.test(v.trim()) ? d.length >= 10 : d.length === 10 || d.length === 11 || (d.startsWith("55") && (d.length === 12 || d.length === 13)); };
       let path, payload;
-      if (mode === "entrar") { path = "login"; payload = { email: val("em"), password: pw }; if (!payload.email) { out.textContent = "Informe o e-mail."; return; } }
+      if (mode === "entrar") { path = "login"; payload = { login: val("tel"), password: pw }; if (!payload.login) { out.textContent = "Informe o seu WhatsApp."; return; } }
       else if (mode === "dono") { path = "login"; payload = { password: pw }; }
       else if (mode === "criar") {
-        path = "signup"; payload = { name: val("nm"), company: val("co"), email: val("em"), password: pw, website: val("ws") };
+        path = "signup"; payload = { name: val("nm"), company: val("co"), phone: val("tel"), password: pw, website: val("ws") };
         if (payload.name.length < 3) { out.textContent = "Informe o seu nome."; return; }
         if (payload.company.length < 2) { out.textContent = "Informe o nome da empresa."; return; }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(payload.email)) { out.textContent = "Informe um e-mail válido."; return; }
+        if (!telOk(payload.phone)) { out.textContent = "Informe um WhatsApp válido, com DDD."; return; }
         if (pw.length < 8) { out.textContent = "A senha precisa de pelo menos 8 caracteres."; return; }
-      } else if (mode === "esqueci") { path = "forgot"; payload = { email: val("em") }; }
-      else { path = "reset"; payload = { token: resetTok, password: pw }; if (pw.length < 8) { out.textContent = "A senha precisa de pelo menos 8 caracteres."; return; } }
+      } else if (mode === "esqueci") { path = "forgot"; payload = { phone: val("tel") }; if (!telOk(payload.phone)) { out.textContent = "Informe um WhatsApp válido, com DDD."; return; } }
+      else {
+        const code = R.digits(val("code"));
+        if (code.length !== 6) { out.textContent = "Digite os 6 números do código."; return; }
+        if (O.flow === "esqueci") { if (pw.length < 8) { out.textContent = "A senha precisa de pelo menos 8 caracteres."; return; } path = "reset"; payload = { phone: O.login, code, password: pw }; }
+        else { path = O.flow === "criar" ? "signup-confirm" : "login-verify"; payload = { phone: O.login, code }; }
+      }
       busy(b, true, "Aguarde…");
       try {
-        const r = await fetch("/api/admin/" + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "Não foi possível concluir agora.");
-        if (mode === "esqueci") {
-          busy(b, false);
-          out.className = "form-msg ok";
-          out.textContent = d.emailEnabled === false ? "O envio de e-mail ainda não está ativo no sistema. Fale com o suporte para receber uma senha nova." : "Pronto. Se o e-mail estiver cadastrado, o link chega em alguns minutos (confira também o spam).";
-          return;
-        }
+        const d = await post0(path, payload);
+        if (mode === "criar" && d.verify) return toCode("criar", payload.phone, d, payload);
+        if (mode === "entrar" && d.verify) return toCode("entrar", payload.login, d, payload);
+        if (mode === "esqueci") return toCode("esqueci", payload.phone, d, payload);
+        const flow = O.flow;
+        S.otp = null; clearTimeout(S.otpT);
         S.token = d.token; R.store.set("adm", d.token); R.store.set("admSuper", "");
         R.store.set("empresa", d.company || "");
-        if (mode === "nova" || mode === "criar") history.replaceState(null, "", mode === "criar" ? "#/empresa" : "#/");
+        history.replaceState(null, "", flow === "criar" ? "#/empresa" : "#/");
         await start();
-        if (mode === "criar") R.toast("Conta criada. Comece pelos dados da sua empresa.");
+        if (flow === "criar") R.toast("Conta criada. Comece pelos dados da sua empresa.");
+        else if (flow === "esqueci") R.toast("Senha nova salva.");
       } catch (err) { out.className = "form-msg"; out.textContent = err.message; busy(b, false); }
     });
   }
+  // máscara do WhatsApp brasileiro: (44) 99999-0000 (com + fica livre, para outro país)
+  const maskTel = (v) => { if (/^\s*\+/.test(v)) return v; let d = R.digits(v); if (d.length > 11 && d.startsWith("55")) d = d.slice(2); d = d.slice(0, 11); return d.length <= 2 ? d : d.length <= 6 ? `(${d.slice(0, 2)}) ${d.slice(2)}` : d.length <= 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`; };
+  const fmtTel = (d) => { d = R.digits(d); if (!d) return ""; return d.startsWith("55") && d.length >= 12 ? maskTel(d.slice(2)) : "+" + d; };
 
   /* ---------- painel do dono do sistema ---------- */
   // visão geral, configurações do sistema e ações rápidas vêm antes da lista de contas
@@ -194,7 +224,7 @@
     const cs = D.companies || [];
     const q = (S.supQ || "").trim().toLowerCase();
     const f = S.supF || "todas";
-    const rows = cs.filter((c) => (f === "ativas" ? !c.blocked : f === "bloqueadas" ? c.blocked : true)).filter((c) => !q || `${c.name} ${c.owner.name} ${c.owner.email} ${c.note}`.toLowerCase().includes(q));
+    const rows = cs.filter((c) => (f === "ativas" ? !c.blocked : f === "bloqueadas" ? c.blocked : true)).filter((c) => !q || `${c.name} ${c.owner.name} ${c.owner.phone} ${c.owner.phoneFmt} ${c.owner.email} ${c.note}`.toLowerCase().includes(q));
     const dt = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "nunca");
     const host = location.host;
     const lim = (c) => (c.maxSellers ? `${c.sellers} de ${c.maxSellers}` : `${c.sellers}`);
@@ -253,15 +283,15 @@
             <div class="row-acts"><button type="button" class="pill pill-cream" id="demoAcc">${cs.some((c) => c.demo) ? "Recriar do zero" : "Criar conta de teste"}</button></div>
           </div>
           <div class="card"><h2>Situação do sistema</h2>
-            <p class="small" style="margin:0">E-mail automático: <b>${D.emailEnabled ? "ativo" : "desligado"}</b>${D.emailEnabled ? "" : " (sem ele, “Esqueci minha senha” não envia o link; use Nova senha na conta)"}</p>
+            <p class="small" style="margin:0">Confirmação por WhatsApp: <b>${esc(D.whatsappOtp)}</b>${D.whatsappOtpOn ? "" : " (sem ela, ninguém consegue criar conta nem pedir senha nova; contas criadas por você entram normalmente só depois que a confirmação estiver ligada)"}</p>
           </div>
         </div>
       </div>
       <div class="pgh" id="sup-contas" style="margin-top:32px"><div><span class="label">Contas</span><h2 style="margin:6px 0 0">Contas cadastradas</h2></div></div>
-      <div class="row-acts" style="margin-bottom:12px;flex-wrap:wrap"><input class="inp" id="supQ" placeholder="Buscar por empresa, responsável, e-mail ou anotação" value="${esc(S.supQ || "")}" style="flex:1;min-width:220px">
+      <div class="row-acts" style="margin-bottom:12px;flex-wrap:wrap"><input class="inp" id="supQ" placeholder="Buscar por empresa, responsável, WhatsApp ou anotação" value="${esc(S.supQ || "")}" style="flex:1;min-width:220px">
         ${[["todas", "Todas"], ["ativas", "Ativas"], ["bloqueadas", "Bloqueadas"]].map(([k, t]) => `<button type="button" class="pill ${f === k ? "on" : "pill-line"} pill-sm" data-supf="${k}">${t}</button>`).join("")}</div>
       ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Conta</th><th>Responsável</th><th>Criada</th><th>Último acesso</th><th>Propostas</th><th>Consultores</th><th>Plano</th><th>Situação</th><th class="r">Ações</th></tr></thead><tbody>
-        ${rows.map((c) => `<tr><td><b>${esc(c.name)}</b>${c.demo ? ' <span class="muted small">(teste)</span>' : ""}${c.note ? `<br><span class="muted small">${esc(c.note)}</span>` : ""}</td><td>${esc(c.owner.name)}<br><span class="muted small">${esc(c.owner.email)}</span></td><td>${dt(c.createdAt)}<br><span class="muted small">${c.createdBy === "dono" ? "por você" : "cadastro"}</span></td><td>${dt(c.lastLoginAt)}</td><td>${c.proposals}</td><td>${lim(c)}</td><td>${subCell(c.sub)}</td><td><span class="st ${c.blocked ? "recusada" : "assinada"}">${c.blocked ? "Bloqueada" : "Ativa"}</span></td>
+        ${rows.map((c) => `<tr><td><b>${esc(c.name)}</b>${c.demo ? ' <span class="muted small">(teste)</span>' : ""}${c.note ? `<br><span class="muted small">${esc(c.note)}</span>` : ""}</td><td>${esc(c.owner.name)}<br><span class="muted small">${c.owner.phone ? `${esc(c.owner.phoneFmt)}${c.owner.phoneVerified ? "" : " · a confirmar"}` : esc(c.owner.email)}</span></td><td>${dt(c.createdAt)}<br><span class="muted small">${c.createdBy === "dono" ? "por você" : "cadastro"}</span></td><td>${dt(c.lastLoginAt)}</td><td>${c.proposals}</td><td>${lim(c)}</td><td>${subCell(c.sub)}</td><td><span class="st ${c.blocked ? "recusada" : "assinada"}">${c.blocked ? "Bloqueada" : "Ativa"}</span></td>
           <td class="r"><div class="row-acts" style="justify-content:flex-end;flex-wrap:wrap"><button type="button" class="pill pill-green pill-sm" data-enter="${esc(c.id)}">Entrar</button><button type="button" class="pill pill-line pill-sm" data-edit="${esc(c.id)}">Editar</button><button type="button" class="pill ${c.sub.requested ? "pill-cream" : "pill-line"} pill-sm" data-bill="${esc(c.id)}">Cobrança</button><button type="button" class="pill pill-line pill-sm" data-reset="${esc(c.id)}">Nova senha</button><button type="button" class="pill ${c.blocked ? "pill-cream" : "pill-line"} pill-sm" data-block="${esc(c.id)}" data-on="${c.blocked ? 0 : 1}">${c.blocked ? "Liberar" : "Bloquear"}</button><button type="button" class="pill pill-line pill-sm" data-del="${esc(c.id)}">Excluir</button></div></td></tr>`).join("")}
       </tbody></table></div>` : `<div class="card"><div class="empty"><b>${cs.length ? "Nenhuma conta com esse filtro" : "Nenhuma conta ainda"}</b><span>${cs.length ? "Mude a busca ou o filtro." : "Quando alguém criar a conta pela página de divulgação, ela aparece aqui. Você também pode criar em Criar conta."}</span></div></div>`}
       </div></main>`;
@@ -306,14 +336,14 @@
     });
     $("#supNewBtn").addEventListener("click", async () => {
       const v = await confirmModal({ eyebrow: "Nova conta", title: "Criar conta", tone: "green", confirm: "Criar conta",
-        html: `<p class="muted small">A senha é gerada e aparece aqui para você enviar ao responsável. Ele pode trocar depois em Minha conta.</p>
+        html: `<p class="muted small">A senha é gerada e aparece aqui para você enviar ao responsável. No primeiro acesso ele confirma o WhatsApp com um código e pode trocar a senha em Conta e plano.</p>
           <label class="fl"><span>Nome do responsável</span><input class="inp" id="nwName"></label>
           <label class="fl"><span>Nome da empresa</span><input class="inp" id="nwCo"></label>
-          <label class="fl"><span>E-mail de acesso</span><input class="inp" id="nwEm" type="email"></label>
+          <label class="fl"><span>WhatsApp do responsável (é o acesso dele)</span><input class="inp" id="nwTel" inputmode="tel" placeholder="(44) 99999-0000"></label>
           <label class="fl"><span>Anotação interna (só você vê)</span><input class="inp" id="nwNote" maxlength="400"></label>`,
-        getValue: (w) => ({ name: $("#nwName", w).value.trim(), company: $("#nwCo", w).value.trim(), email: $("#nwEm", w).value.trim(), note: $("#nwNote", w).value.trim() }) });
+        getValue: (w) => ({ name: $("#nwName", w).value.trim(), company: $("#nwCo", w).value.trim(), phone: $("#nwTel", w).value.trim(), note: $("#nwNote", w).value.trim() }) });
       if (!v) return;
-      try { const r = await post("companies", v); await refresh("Conta criada."); out(`<div class="okbox"><span>Conta <b>${esc(r.company.name)}</b> criada. Login em /entrar com <code class="pw">${esc(r.company.owner.email)}</code> e a senha <code class="pw">${esc(r.password)}</code>.</span></div>`); }
+      try { const r = await post("companies", v); await refresh("Conta criada."); out(`<div class="okbox"><span>Conta <b>${esc(r.company.name)}</b> criada. Acesso em /entrar com o WhatsApp <code class="pw">${esc(r.company.owner.phoneFmt)}</code> e a senha <code class="pw">${esc(r.password)}</code>.</span></div>`); }
       catch (err) { R.toast(err.message); }
     });
     $$("[data-edit]").forEach((b) => b.addEventListener("click", async () => {
@@ -321,10 +351,10 @@
       const v = await confirmModal({ eyebrow: "Conta", title: "Editar " + esc(c.name), tone: "green", confirm: "Salvar",
         html: `<label class="fl"><span>Nome da empresa</span><input class="inp" id="edCo" value="${esc(c.name)}"></label>
           <label class="fl"><span>Nome do responsável</span><input class="inp" id="edName" value="${esc(c.owner.name)}"></label>
-          <label class="fl"><span>E-mail de acesso do responsável</span><input class="inp" id="edEm" type="email" value="${esc(c.owner.email)}"></label>
+          ${c.demo ? "" : `<label class="fl"><span>WhatsApp de acesso do responsável${c.owner.email && !c.owner.phone ? ` (hoje entra com ${esc(c.owner.email)})` : ""}</span><input class="inp" id="edTel" inputmode="tel" value="${esc(c.owner.phoneFmt)}"><small>Trocar o número pede um código no próximo acesso.</small></label>`}
           <label class="fl"><span>Limite de consultores (vazio = padrão do sistema; 0 = sem limite)</span><input class="inp" id="edMax" type="number" min="0" max="500" value="${c.maxSellersOwn != null ? esc(c.maxSellersOwn) : ""}"></label>
           <label class="fl"><span>Anotação interna (só você vê)</span><input class="inp" id="edNote" maxlength="400" value="${esc(c.note || "")}"></label>`,
-        getValue: (w) => ({ company: $("#edCo", w).value.trim(), ownerName: $("#edName", w).value.trim(), ownerEmail: $("#edEm", w).value.trim(), maxSellers: $("#edMax", w).value === "" ? null : $("#edMax", w).value, note: $("#edNote", w).value.trim() }) });
+        getValue: (w) => ({ company: $("#edCo", w).value.trim(), ownerName: $("#edName", w).value.trim(), ...($("#edTel", w) && $("#edTel", w).value.trim() ? { ownerPhone: $("#edTel", w).value.trim() } : {}), maxSellers: $("#edMax", w).value === "" ? null : $("#edMax", w).value, note: $("#edNote", w).value.trim() }) });
       if (!v) return;
       try { await put(`companies/${c.id}`, v); await refresh("Conta atualizada."); } catch (err) { R.toast(err.message); }
     }));
@@ -338,7 +368,7 @@
       const ok = await confirmModal({ title: "Gerar nova senha?", html: `<p>A senha atual de <b>${esc(c.name)}</b> deixa de valer e a nova aparece aqui para você enviar ao responsável.</p>`, confirm: "Gerar nova senha", tone: "green" });
       if (!ok) return;
       busy(b, true, "Gerando…");
-      try { const r = await post(`companies/${c.id}/reset`); out(`<div class="okbox"><span>Nova senha de <b>${esc(c.name)}</b> (${esc(r.company.owner.email)}): <code class="pw">${esc(r.password)}</code>. Envie para o responsável; a senha antiga deixou de valer.</span></div>`); }
+      try { const r = await post(`companies/${c.id}/reset`); out(`<div class="okbox"><span>Nova senha de <b>${esc(c.name)}</b> (${esc(r.company.owner.phoneFmt || r.company.owner.email)}): <code class="pw">${esc(r.password)}</code>. Envie para o responsável; a senha antiga deixou de valer.</span></div>`); }
       catch (e) { R.toast(e.message); }
       busy(b, false);
     }));
@@ -363,6 +393,34 @@
     await start();
   }
 
+  /* ---------- WhatsApp de acesso (responsável e consultor): trocar com código ---------- */
+  function phoneCardHTML(who, locked) {
+    const has = who.phone, ok = has && who.phoneVerified;
+    return `<div class="fl" id="phCard"><span>WhatsApp de acesso</span>
+      <p class="small" style="margin:0">${has ? `<b>${esc(fmtTel(who.phone))}</b> ${ok ? '<span class="st assinada">Confirmado</span>' : '<span class="st contrato">A confirmar</span>'}` : `Hoje você entra com o e-mail ${esc(who.email || "")}. Cadastre o seu WhatsApp para entrar e recuperar a senha por ele.`}</p>
+      ${locked ? '<small>Na conta modelo de teste o acesso não muda.</small>' : `<div class="linkbox" id="phStep1"><input class="inp" id="phNew" inputmode="tel" placeholder="${has ? "Novo WhatsApp" : "Seu WhatsApp"}, com DDD"><button type="button" class="pill pill-cream" id="phSend">Enviar código</button></div>
+      <div class="linkbox" id="phStep2" hidden><input class="inp" id="phCode" inputmode="numeric" maxlength="6" placeholder="Código de 6 números" autocomplete="one-time-code"><button type="button" class="pill pill-green" id="phOk">Confirmar</button></div>
+      <small id="phMsg">O código chega no número novo e vale por 10 minutos.</small>`}</div>`;
+  }
+  function bindPhoneCard(after) {
+    const send = $("#phSend"); if (!send) return;
+    const inp = $("#phNew"); inp.addEventListener("input", () => (inp.value = maskTel(inp.value)));
+    let phone = "";
+    send.addEventListener("click", async () => {
+      phone = inp.value.trim();
+      if (R.digits(phone).length < 10) { R.toast("Informe o WhatsApp com DDD."); return; }
+      busy(send, true, "Enviando…");
+      try { const r = await post("phone", { phone }); $("#phStep2").hidden = false; $("#phMsg").textContent = `Código enviado para ${r.phone}. Digite os 6 números.`; $("#phCode").focus(); }
+      catch (err) { R.toast(err.message); }
+      busy(send, false);
+    });
+    $("#phOk").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Confirmando…");
+      try { await post("phone/confirm", { phone, code: $("#phCode").value.trim() }); await reload(); R.toast("WhatsApp confirmado. Use este número para entrar."); after(); }
+      catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
+    });
+  }
+
   /* ---------- minha conta (responsável pela empresa) ---------- */
   async function account() {
     shell("acc", R.loadingHTML("Carregando…"));
@@ -374,7 +432,7 @@
       <div class="cols">
         <div class="stack"><div class="card"><h2>Dados de acesso</h2>
           <label class="fl"><span>Seu nome</span><input class="inp" id="aName" value="${esc(c.owner.name)}"></label>
-          <p class="muted small" style="margin:0">E-mail de acesso: ${esc(c.owner.email)}</p>
+          ${phoneCardHTML(c.owner, !!c.demo)}
           <div class="row-acts"><button type="button" class="pill pill-green" id="aSave">Salvar</button></div>
         </div></div>
         <div class="stack"><div class="card"><h2>Trocar senha</h2>
@@ -383,6 +441,7 @@
           <div class="row-acts"><button type="button" class="pill pill-line" id="aPw">Trocar senha</button></div>
         </div></div>
       </div>`);
+    bindPhoneCard(account);
     $("#aSave").addEventListener("click", async (e) => {
       busy(e.currentTarget, true, "Salvando…");
       try { await put("account", { name: $("#aName").value.trim() }); await reload(); R.toast("Dados salvos."); } catch (err) { R.toast(err.message); }
@@ -428,7 +487,7 @@
     const TYPE = { pagamento: "Pagamento", pedido: "Pedido de plano", cancelamento: "Renovação cancelada", cortesia: "Cortesia", "fim da cortesia": "Fim da cortesia", "teste estendido": "Teste estendido" };
     shell("plan", `
       <div class="pgh"><div><span class="label">Assinatura do sistema</span><h1>Plano e pagamento</h1><p class="sub">${esc(statusLine)}</p></div><span class="st ${sb.status === "vencida" ? "recusada" : sb.status === "teste" ? "contrato" : "assinada"}">${SUB_LABEL[sb.status]}</span></div>
-      ${sb.requested ? `<div class="okbox" style="margin-bottom:16px">Pedido do plano <b>${PLAN_LABEL[sb.requested.plan]}</b> feito em ${esc(R.dateTime(sb.requested.at))}. Você recebe as instruções de pagamento no e-mail de acesso, e o plano fica ativo assim que o pagamento for confirmado.</div>` : ""}
+      ${sb.requested ? `<div class="okbox" style="margin-bottom:16px">Pedido do plano <b>${PLAN_LABEL[sb.requested.plan]}</b> feito em ${esc(R.dateTime(sb.requested.at))}. Você recebe as instruções de pagamento no seu WhatsApp, e o plano fica ativo assim que o pagamento for confirmado.</div>` : ""}
       <div class="cols">
         ${card("mensal", pr.mensal, "mês", "Pago todo mês. Cancele quando quiser.", false)}
         ${card("anual", pr.anual, "ano", `Equivale a ${brl(annualMonth)} por mês${save ? `, ${save}% a menos que o mensal` : ""}. Pago uma vez por ano.`, true)}
@@ -448,7 +507,7 @@
       const ok = await confirmModal({ eyebrow: "Plano", tone: "green", title: `Assinar o plano ${PLAN_LABEL[k].toLowerCase()}?`, html: `<p>${k === "anual" ? `${brl(pr.anual)} por ano` : `${brl(pr.mensal)} por mês`}. ${sb.status === "ativa" ? "O novo período começa quando o atual terminar." : "O plano fica ativo assim que o pagamento for confirmado."}</p>`, confirm: "Confirmar" });
       if (!ok) return;
       busy(b, true, "Enviando…");
-      try { const r = await post("billing/checkout", { plan: k }); if (r.url) { location.href = r.url; return; } await reload(); plan(); R.toast("Pedido registrado. As instruções de pagamento chegam no seu e-mail."); }
+      try { const r = await post("billing/checkout", { plan: k }); if (r.url) { location.href = r.url; return; } await reload(); plan(); R.toast("Pedido registrado. As instruções de pagamento chegam no seu WhatsApp."); }
       catch (err) { R.toast(err.message); busy(b, false); }
     }));
     const pc = $("#planCancel");
@@ -1016,7 +1075,7 @@
           ${off ? `<div class="warnbox"><span><b>Proposta fora do ar.</b> ${unpub ? "Ela foi despublicada" : `A validade venceu em ${esc(R.dateLong(p.validUntil))} sem pedido do cliente`}; quem abrir o link vê o aviso de proposta indisponível.${!unpub && !isAdm() ? " Só o administrador pode publicá-la de novo." : ""}</span>${!unpub && !isAdm() ? "" : '<button type="button" class="pill pill-cream pill-sm" id="pubBtn2">Publicar de novo</button>'}</div>` : ""}
           <div class="card share"><div class="ch"><h2>Link da proposta</h2>${p.sentAt ? `<span class="muted small">Enviada em ${esc(R.dateTime(p.sentAt))}</span>` : ""}</div>
             <div class="linkbox"><input class="inp" readonly value="${esc(link)}" id="plink"><button type="button" class="pill pill-cream" data-share="copiar">Copiar</button></div>
-            <div class="row-acts"><a class="pill pill-green" data-share="whatsapp" href="${waLink(p.client.phone, msg)}" target="_blank" rel="noopener">Enviar no WhatsApp</a>${S.data.emailEnabled ? `<button type="button" class="pill pill-line" id="mailProp">${p.client.email ? "Enviar por e-mail" : "Enviar por e-mail…"}</button>` : p.client.email ? `<a class="pill pill-line" data-share="e-mail" href="mailto:${esc(p.client.email)}?subject=${encodeURIComponent(M.sp)}&body=${encodeURIComponent(msg)}">Enviar por e-mail</a>` : ""}${!p.sentAt ? '<button type="button" class="pill pill-line" data-share="manual">Marcar como enviada</button>' : ""}</div>
+            <div class="row-acts"><a class="pill pill-green" data-share="whatsapp" href="${waLink(p.client.phone, msg)}" target="_blank" rel="noopener">Enviar no WhatsApp</a>${p.client.email ? `<a class="pill pill-line" data-share="e-mail" href="mailto:${esc(p.client.email)}?subject=${encodeURIComponent(M.sp)}&body=${encodeURIComponent(msg)}">Enviar por e-mail</a>` : ""}${!p.sentAt ? '<button type="button" class="pill pill-line" data-share="manual">Marcar como enviada</button>' : ""}</div>
             <dl class="kv"><dt>Visualizações</dt><dd>${p.views ? `${p.views} · última em ${esc(R.dateTime(p.lastViewAt))}` : "Ainda não abriu"}</dd><dt>Válida até</dt><dd>${esc(R.dateLong(p.validUntil))}${ps.expired ? ' <span class="st vencida">Vencida</span>' : ""}</dd><dt>País</dt><dd>${esc(countryName(p.country || "BR"))} · ${LANG[p.lang || "pt"]} · ${esc(p.currency || "BRL")}</dd>${seller ? `<dt>Consultor</dt><dd>${esc(seller.name)}${seller.phone ? " · " + esc(seller.phone) : ""}</dd>` : ""}${p.client.contact ? `<dt>Contato</dt><dd>${esc(p.client.contact)}</dd>` : ""}${p.client.phone ? `<dt>WhatsApp</dt><dd>${esc(p.client.phone)}</dd>` : ""}</dl>
           </div>
           <div class="card"><h2>Histórico</h2><ol class="timeline">${(p.history || []).slice().reverse().map((h) => `<li><time>${esc(R.dateTime(h.at))}</time><span>${esc(h.text)}</span></li>`).join("")}</ol></div>
@@ -1091,7 +1150,7 @@
       <div class="preview-doc" id="cPrev"${S.showText ? " hidden" : ""}>${docPreview(c.text)}</div>
       <div id="cEdit"${S.showText ? "" : " hidden"}><textarea class="ta mono" id="cText" rows="22">${esc(c.text)}</textarea><div class="row-acts" style="margin-top:10px"><button type="button" class="pill pill-cream" id="saveText">Salvar texto</button><span class="muted small">Linhas que começam com ## viram títulos.${c.seller ? " Mudar o texto apaga a assinatura do intermediador." : ""}</span></div></div>
       <div class="row-acts"><button type="button" class="pill pill-line pill-sm" id="toggleText">${S.showText ? "Ver como documento" : "Editar o texto deste contrato"}</button></div>`;
-    const emailSw = S.data.emailEnabled ? `<label class="switch"><input type="checkbox" id="aEmail" checked>Enviar o link por e-mail para ${esc(cl.email)}</label>` : "";
+    const emailSw = "";
 
     if (!isAdm()) {
       const m0 = me(), sg = st.agencySignature, canSend = st.sellersUseAgencySignature && sg;
@@ -1126,7 +1185,7 @@
     </div>`;
   }
 
-  const sentMsg = (what, r) => (r.emailed ? `${what} e enviado ao cliente por e-mail.` : `${what}. Envie o link ao cliente.`);
+  const sentMsg = (what) => `${what}. Envie o link ao cliente pelo WhatsApp.`;
 
   function bindDetail() {
     const { proposal: p, contract: c } = S.detail;
@@ -1136,15 +1195,6 @@
       try { await post(`proposals/${p.id}/sent`, { via: via === "manual" ? "" : via }); S.detail = await api("proposals/" + p.id); await reload(); renderDetail(); } catch (err) {}
     }));
     $$("[data-copy]").forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy)));
-    const mp = $("#mailProp");
-    if (mp) mp.addEventListener("click", async () => {
-      let to = p.client.email;
-      if (!to) { to = (prompt("E-mail do cliente para enviar a proposta:") || "").trim(); if (!to) return; }
-      else if (!armed(mp, `Enviar para ${to}?`)) return;
-      busy(mp, true, "Enviando…");
-      try { S.detail = await post(`proposals/${p.id}/email`, { to }); await reload(); renderDetail(); R.toast(`Proposta enviada para ${to}.`); }
-      catch (err) { R.toast(err.message); busy(mp, false); }
-    });
     const del = $("#delBtn");
     $("#zipBtn").addEventListener("click", (e) => downloadZip(p.id, e.currentTarget));
     const publish = async (btn) => {
@@ -1223,7 +1273,7 @@
       if (send) send.addEventListener("click", async () => {
         if (textDirty()) { R.toast("Salve o texto editado antes de liberar."); return; }
         busy(send, true, "Liberando…");
-        try { const r = await post(`contracts/${c.id}/send`, { emailClient: $("#aEmail") ? $("#aEmail").checked : false }); S.detail = { ...S.detail, proposal: r.proposal, contract: r.contract, seller: r.seller }; await reload(); renderDetail(); R.toast(sentMsg("Contrato liberado", r)); }
+        try { const r = await post(`contracts/${c.id}/send`, {}); S.detail = { ...S.detail, proposal: r.proposal, contract: r.contract, seller: r.seller }; await reload(); renderDetail(); R.toast(sentMsg("Contrato liberado", r)); }
         catch (err) { R.toast(err.message); busy(send, false); }
       });
       return;
@@ -1253,7 +1303,7 @@
       if (textDirty()) { R.toast("Salve o texto editado antes de assinar."); return; }
       busy(e.currentTarget, true, "Assinando…");
       try {
-        const r = await post(`contracts/${c.id}/send`, { signature, saveSignature: !useSaved && $("#aSave") && $("#aSave").checked, emailClient: $("#aEmail") ? $("#aEmail").checked : false });
+        const r = await post(`contracts/${c.id}/send`, { signature, saveSignature: !useSaved && $("#aSave") && $("#aSave").checked});
         S.detail = { ...S.detail, proposal: r.proposal, contract: r.contract, seller: r.seller };
         await reload();
         renderDetail();
@@ -1269,7 +1319,7 @@
     const signedCount = (uid) => S.data.proposals.filter((p) => p.sellerId === uid && p.status === "assinada").length;
     const np = S.newPw;
     shell("team", `
-      <div class="pgh"><div><span class="label">Equipe</span><h1>Consultores</h1><p class="sub">Vendedores e consultores entram com e-mail e senha, montam propostas, geram contratos e assinam como intermediadores e testemunhas.</p></div></div>
+      <div class="pgh"><div><span class="label">Equipe</span><h1>Consultores</h1><p class="sub">Vendedores e consultores entram com o WhatsApp e a senha, montam propostas, geram contratos e assinam como intermediadores e testemunhas.</p></div></div>
       ${np ? credBox(np) : ""}
       <div class="cols">
         <div class="stack">
@@ -1278,13 +1328,12 @@
         <div class="stack">
           <div class="card"><h2>Novo consultor</h2>
             <label class="fl"><span>Nome completo *</span><input class="inp" id="nName" autocomplete="off"></label>
-            <label class="fl"><span>E-mail de acesso *</span><input class="inp" id="nEmail" type="email" autocomplete="off"></label>
-            <div class="grid2"><label class="fl"><span>WhatsApp</span><input class="inp" id="nPhone" inputmode="tel"></label><label class="fl"><span>CPF</span><input class="inp" id="nDoc" inputmode="numeric"><small>O consultor também pode completar depois.</small></label></div>
+            <div class="grid2"><label class="fl"><span>WhatsApp *</span><input class="inp" id="nPhone" inputmode="tel" placeholder="(44) 99999-0000"><small>É o acesso dele. No primeiro acesso ele confirma com um código.</small></label><label class="fl"><span>CPF</span><input class="inp" id="nDoc" inputmode="numeric"><small>O consultor também pode completar depois.</small></label></div>
             <div class="row-acts"><button type="button" class="pill pill-green pill-lg" id="nSave">Cadastrar e gerar senha</button></div>
           </div>
           <div class="card"><h2>Como funciona</h2>
             <ol class="timeline">
-              <li><time>Acesso</time><span>O consultor entra em ${esc(origin)}/admin, aba Consultor, com o e-mail e a senha.</span></li>
+              <li><time>Acesso</time><span>O consultor entra em ${esc(origin)}/entrar com o WhatsApp e a senha, e confirma o número com o código que chega no WhatsApp.</span></li>
               <li><time>Perfil</time><span>No primeiro acesso, ele completa o CPF e salva a assinatura em Meu perfil.</span></li>
               <li><time>Propostas</time><span>Ele monta e envia propostas. Só vê as dele. O cliente vê o nome e o WhatsApp dele.</span></li>
               <li><time>Contrato</time><span>Ele gera o contrato, assina como intermediador e testemunha e ${S.data.settings.sellersUseAgencySignature ? "libera para o cliente com a assinatura padrão da empresa" : "você libera com a assinatura da empresa"}.</span></li>
@@ -1296,20 +1345,20 @@
   }
 
   function credBox(np) {
-    const msg = `Olá, ${first(np.user.name)}! Seu acesso ao painel de propostas de ${R.B.name}:\n${origin}/admin (aba Consultor)\nE-mail: ${np.user.email}\nSenha: ${np.password}\n\nNo primeiro acesso, complete o seu CPF e salve a sua assinatura em Meu perfil. Depois, troque a senha por uma sua.`;
+    const msg = `Olá, ${first(np.user.name)}! Seu acesso ao painel de propostas de ${R.B.name}:\n${origin}/entrar\nWhatsApp: ${fmtTel(np.user.phone)}\nSenha: ${np.password}\n\nNo primeiro acesso, você recebe um código neste WhatsApp para confirmar. Depois, complete o seu CPF e salve a sua assinatura em Meu perfil. Depois, troque a senha por uma sua.`;
     return `<div class="card ok"><div class="ch"><h2>${np.reset ? "Nova senha gerada" : "Consultor cadastrado"}</h2><button type="button" class="pill pill-line pill-sm" id="credClose">Fechar</button></div>
       <p class="small" style="margin:0">Senha de <b>${esc(np.user.name)}</b>: <code class="pw">${esc(np.password)}</code>. Ela aparece só agora. Envie ao consultor:</p>
       <textarea class="ta" readonly rows="6" id="credMsg">${esc(msg)}</textarea>
-      <div class="row-acts">${np.user.phone ? `<a class="pill pill-green" href="${waLink(np.user.phone, msg)}" target="_blank" rel="noopener">Enviar no WhatsApp</a>` : ""}<a class="pill pill-line" href="mailto:${esc(np.user.email)}?subject=${encodeURIComponent("Acesso ao painel de propostas · " + R.B.name)}&body=${encodeURIComponent(msg)}">Enviar por e-mail</a><button type="button" class="pill pill-cream" id="credCopy">Copiar mensagem</button></div></div>`;
+      <div class="row-acts">${np.user.phone ? `<a class="pill pill-green" href="${waLink(np.user.phone, msg)}" target="_blank" rel="noopener">Enviar no WhatsApp</a>` : ""}<button type="button" class="pill pill-cream" id="credCopy">Copiar mensagem</button></div></div>`;
   }
 
   function userRow(u, n, sgn) {
     const open = S.userOpen === u.id;
     return `<div class="sp${open ? " on" : ""}" data-uid="${u.id}">
-      <div class="sp-head" data-a="open" style="grid-template-columns:minmax(0,1fr) auto"><span><b>${esc(u.name)}${u.active ? "" : ' <span class="st recusada">Desativado</span>'}</b><small>${esc(u.email)}${u.phone ? " · " + esc(u.phone) : ""} · ${u.doc ? "CPF ok" : "sem CPF"} · ${u.hasSignature ? "assinatura salva" : "sem assinatura"}</small></span><span class="pr">${n} proposta(s)${sgn ? ` · ${sgn} assinada(s)` : ""}</span></div>
+      <div class="sp-head" data-a="open" style="grid-template-columns:minmax(0,1fr) auto"><span><b>${esc(u.name)}${u.active ? "" : ' <span class="st recusada">Desativado</span>'}</b><small>${u.phone ? esc(fmtTel(u.phone)) + (u.phoneVerified ? "" : " (a confirmar)") : esc(u.email)} · ${u.doc ? "CPF ok" : "sem CPF"} · ${u.hasSignature ? "assinatura salva" : "sem assinatura"}</small></span><span class="pr">${n} proposta(s)${sgn ? ` · ${sgn} assinada(s)` : ""}</span></div>
       ${open ? `<div class="sp-body">
-        <div class="grid3"><label class="fl"><span>Nome completo</span><input class="inp" data-u="name" value="${esc(u.name)}"></label><label class="fl"><span>WhatsApp</span><input class="inp" data-u="phone" value="${esc(u.phone || "")}"></label><label class="fl"><span>CPF</span><input class="inp" data-u="doc" inputmode="numeric" value="${esc(R.maskDoc(u.doc || ""))}"></label></div>
-        <p class="muted small" style="margin:0">E-mail de acesso: ${esc(u.email)} · cadastrado em ${esc(R.dateTime(u.createdAt))}</p>
+        <div class="grid3"><label class="fl"><span>Nome completo</span><input class="inp" data-u="name" value="${esc(u.name)}"></label><label class="fl"><span>WhatsApp (acesso)</span><input class="inp" data-u="phone" inputmode="tel" value="${esc(fmtTel(u.phone || ""))}"></label><label class="fl"><span>CPF</span><input class="inp" data-u="doc" inputmode="numeric" value="${esc(R.maskDoc(u.doc || ""))}"></label></div>
+        <p class="muted small" style="margin:0">O WhatsApp é o acesso do consultor; trocar o número pede um código no próximo acesso dele. Cadastrado em ${esc(R.dateTime(u.createdAt))}.</p>
         <div class="row-acts"><button type="button" class="pill pill-cream pill-sm" data-a="save">Salvar</button><button type="button" class="pill pill-line pill-sm" data-a="reset">Gerar nova senha</button><button type="button" class="pill pill-line pill-sm" data-a="active" style="margin-left:auto">${u.active ? "Desativar acesso" : "Reativar acesso"}</button></div>
       </div>` : ""}
     </div>`;
@@ -1319,10 +1368,11 @@
     const cc = $("#credClose"); if (cc) cc.addEventListener("click", () => { S.newPw = null; team(); });
     const cp = $("#credCopy"); if (cp) cp.addEventListener("click", () => copy($("#credMsg").value, "Mensagem copiada."));
     const nd = $("#nDoc"); nd.addEventListener("input", () => (nd.value = R.maskDoc(nd.value)));
+    const np0 = $("#nPhone"); np0.addEventListener("input", () => (np0.value = maskTel(np0.value)));
     $("#nSave").addEventListener("click", async (e) => {
-      const body = { name: $("#nName").value.trim(), email: $("#nEmail").value.trim(), phone: $("#nPhone").value.trim(), doc: R.digits($("#nDoc").value) };
+      const body = { name: $("#nName").value.trim(), phone: $("#nPhone").value.trim(), doc: R.digits($("#nDoc").value) };
       if (body.name.length < 5 || !body.name.includes(" ")) { R.toast("Informe o nome completo."); $("#nName").focus(); return; }
-      if (!R.validEmail(body.email)) { R.toast("Informe um e-mail válido."); $("#nEmail").focus(); return; }
+      if (R.digits(body.phone).length < 10) { R.toast("Informe o WhatsApp do consultor, com DDD."); $("#nPhone").focus(); return; }
       if (body.doc && !R.validDoc(body.doc)) { R.toast("CPF inválido."); $("#nDoc").focus(); return; }
       busy(e.currentTarget, true, "Cadastrando…");
       try { const r = await post("users", body); S.newPw = { user: r.user, password: r.password }; await reload(); team(); }
@@ -1361,9 +1411,9 @@
         <div class="stack">
           <div class="card"><h2>Dados</h2>
             <label class="fl"><span>Nome completo *</span><input class="inp" id="pName" value="${esc(u.name)}"></label>
-            <div class="grid2"><label class="fl"><span>CPF *</span><input class="inp" id="pDoc" inputmode="numeric" value="${esc(R.maskDoc(u.doc || ""))}"></label><label class="fl"><span>WhatsApp</span><input class="inp" id="pPhone" inputmode="tel" value="${esc(u.phone || "")}"></label></div>
-            <p class="muted small" style="margin:0">E-mail de acesso: ${esc(u.email)}</p>
+            <label class="fl"><span>CPF *</span><input class="inp" id="pDoc" inputmode="numeric" value="${esc(R.maskDoc(u.doc || ""))}"></label>
             <div class="row-acts"><button type="button" class="pill pill-green" id="pSave">Salvar dados</button></div>
+            ${phoneCardHTML(u, false)}
           </div>
           <div class="card"><h2>Minha assinatura</h2>
             ${sig ? `<div class="sig-saved" id="mySig"><img src="${sig}" alt="Sua assinatura salva"><button type="button" class="pill pill-line pill-sm" style="color:var(--ink)" id="sigNew">Desenhar outra</button></div>` : '<p class="muted small" style="margin:0">Desenhe uma vez e use em todos os contratos.</p>'}
@@ -1379,12 +1429,13 @@
         </div>
       </div>`);
     const d = $("#pDoc"); d.addEventListener("input", () => (d.value = R.maskDoc(d.value)));
+    bindPhoneCard(profile);
     $("#pSave").addEventListener("click", async (e) => {
       const name = $("#pName").value.trim(), doc = R.digits($("#pDoc").value);
       if (name.length < 5 || !name.includes(" ")) { R.toast("Informe o nome completo."); return; }
       if (!R.validDoc(doc) || doc.length !== 11) { R.toast("Informe um CPF válido."); return; }
       busy(e.currentTarget, true, "Salvando…");
-      try { const r = await put("me", { name, doc, phone: $("#pPhone").value.trim() }); S.data.me = r.me; R.toast("Dados salvos."); } catch (err) { R.toast(err.message); }
+      try { const r = await put("me", { name, doc }); S.data.me = r.me; R.toast("Dados salvos."); } catch (err) { R.toast(err.message); }
       busy(e.currentTarget, false);
     });
     const mount = () => { if (S.padMe) return; S.padMe = R.SignPad($("#mePad")); $("#meClear").addEventListener("click", () => S.padMe.clear()); };
@@ -1525,7 +1576,7 @@
         <div><b>${title}</b><small>${hint}</small><div class="row-acts"><label class="pill pill-cream pill-sm">${v ? "Trocar" : "Enviar logo"}<input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" data-logo="${kind}" hidden></label>${v ? `<button type="button" class="link-btn" data-logo-del="${kind}">Remover</button>` : ""}</div></div></div>`;
     };
     shell("biz", `
-      <div class="pgh"><div><span class="label">White label</span><h1>Dados da empresa</h1><p class="sub">Nome, contato, logo e assinatura que aparecem nas propostas, nos contratos e nos e-mails. Serve para empresas e para freelancers.</p></div></div>
+      <div class="pgh"><div><span class="label">White label</span><h1>Dados da empresa</h1><p class="sub">Nome, contato, logo e assinatura que aparecem nas propostas e nos contratos. Serve para empresas e para freelancers.</p></div></div>
       <div class="cols">
         <div class="stack">
           <a class="card accent page-cta" href="#/pagina"><span><b>Página da proposta</b><small>Modelo, cores, fontes, galeria de trabalhos e todos os textos que o cliente vê ficam em Página da proposta, com prévia ao lado.</small></span><span class="pill pill-green">Abrir</span></a>
@@ -1874,7 +1925,7 @@
       try {
         const r = await post("demo");
         await reload();
-        $("#demoOut").innerHTML = `<div class="okbox" style="display:grid;gap:8px"><span>Modelo criado. Acesso do consultor fictício (Entrar, com este e-mail): <b>${esc(r.seller.email)}</b> · senha <code class="pw">${esc(r.seller.password)}</code></span>
+        $("#demoOut").innerHTML = `<div class="okbox" style="display:grid;gap:8px"><span>Modelo criado. Acesso do consultor fictício (Entrar, no campo WhatsApp use este e-mail de teste): <b>${esc(r.seller.email)}</b> · senha <code class="pw">${esc(r.seller.password)}</code></span>
           <ul class="lines">${r.proposals.map((p) => `<li><a href="#/proposta/${p.id}">${esc(p.name)}</a><a class="small" href="/p/${p.id}" target="_blank" rel="noopener">abrir como cliente</a></li>`).join("")}</ul></div>`;
         R.toast("Modelo de teste criado na pasta “Modelo de teste”.");
       } catch (err) { R.toast(err.message); }

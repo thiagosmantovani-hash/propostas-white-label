@@ -27,7 +27,10 @@ OUT = Path(__file__).parent / "output"
 OUT.mkdir(exist_ok=True)
 TAG = "[E2E]"
 STAMP = str(int(time.time()))
-OWNER = {"name": "Responsável E2E", "company": f"{TAG} Empresa {STAMP[-5:]}", "email": f"e2e.dono.{STAMP}@exemplo.com", "password": "SenhaDono123"}
+# números de WhatsApp únicos a cada execução (DDDs diferentes para cada pessoa do teste)
+TEL = lambda ddd: f"({ddd}) 9{STAMP[-8:]}"
+TEL_D = lambda ddd: "55" + str(ddd) + "9" + STAMP[-8:]
+OWNER = {"name": "Responsável E2E", "company": f"{TAG} Empresa {STAMP[-5:]}", "phone": TEL(44), "password": "SenhaDono123"}
 
 results, problems = [], []
 created = {"proposals": [], "users": [], "folders": []}
@@ -69,12 +72,29 @@ class Step:
 
 def watch(page, who):
     page.on("pageerror", lambda e: problems.append(f"[{who}] erro de script: {e}"))
-    page.on("console", lambda m: m.type == "error" and "favicon" not in m.text and "404" not in m.text and "410" not in m.text and problems.append(f"[{who}] console: {m.text[:200]}"))
+    page.on("console", lambda m: m.type == "error" and "favicon" not in m.text and "404" not in m.text and "410" not in m.text and "status of 400" not in m.text and problems.append(f"[{who}] console: {m.text[:200]}"))
 
     def resp(r):
-        if r.status >= 500 or (r.status >= 400 and "/api/" in r.url and r.status not in (401, 404, 409, 410)):
+        code_check = r.status == 400 and ("signup-confirm" in r.url or "login-verify" in r.url)  # código errado de propósito
+        if not code_check and (r.status >= 500 or (r.status >= 400 and "/api/" in r.url and r.status not in (401, 404, 409, 410))):
             problems.append(f"[{who}] HTTP {r.status} {r.request.method} {r.url.replace(BASE, '')}")
     page.on("response", resp)
+
+
+def last_code(phone_digits):
+    """Código de confirmação enviado no WhatsApp (servidor de teste com OTP_TEST=1 guarda os códigos)."""
+    s_, d_ = api("public/__codes")
+    assert s_ == 200, "rode o servidor com OTP_TEST=1 para ler os códigos do WhatsApp"
+    for c in d_["codes"]:
+        if c["phone"] == phone_digits:
+            return c["code"]
+    raise AssertionError(f"nenhum código para {phone_digits}")
+
+
+async def type_code(page, phone_digits):
+    await must(page, "#code")
+    await page.fill("#code", last_code(phone_digits))
+    await page.click("button[type=submit]")
 
 
 def make_docx(path, paras):
@@ -147,21 +167,24 @@ async def admin_login(page):
     await page.goto(BASE + "/admin")
     await page.evaluate("localStorage.clear()")
     await page.reload()
-    await must(page, "#em")
-    await page.fill("#em", OWNER["email"])
+    await must(page, "#tel")
+    await page.fill("#tel", OWNER["phone"])
     await page.fill("#pw", OWNER["password"])
     await page.click("button[type=submit]")
     await must(page, ".tiles, .card .empty")
 
 
-async def seller_login(page, email, pw):
+async def seller_login(page, phone, pw, digits=None):
     await page.goto(BASE + "/admin")
     await page.evaluate("localStorage.clear()")
     await page.reload()
-    await must(page, "#em")
-    await page.fill("#em", email)
+    await must(page, "#tel")
+    await page.fill("#tel", phone)
     await page.fill("#pw", pw)
     await page.click("button[type=submit]")
+    await page.wait_for_selector(".with-side, #code", timeout=12000)
+    if await page.query_selector("#code"):  # primeiro acesso: confirma o WhatsApp com o código
+        await type_code(page, digits)
     await must(page, ".with-side")
 
 
@@ -246,8 +269,15 @@ async def main():
             await must(A, "#nm")
             await shot(A, "00-criar-conta")
             await A.fill("#nm", OWNER["name"]); await A.fill("#co", OWNER["company"])
-            await A.fill("#em", OWNER["email"]); await A.fill("#pw", OWNER["password"])
+            await A.fill("#tel", OWNER["phone"]); await A.fill("#pw", OWNER["password"])
             await A.click("button[type=submit]")
+            await must(A, "#code")
+            s_, _ = api("admin/login", {"login": OWNER["phone"], "password": OWNER["password"]})
+            assert s_ == 401, "a conta existiu antes de confirmar o código"
+            await shot(A, "00-codigo-whatsapp", full=False)
+            await A.fill("#code", "000000"); await A.click("button[type=submit]"); await A.wait_for_timeout(500)
+            assert "incorreto" in (await A.text_content("#lmsg")), "aceitou código errado"
+            await type_code(A, TEL_D(44))
             await must(A, "#aName, .adm-top")
             assert "#/empresa" in A.url, A.url
             TOKEN["admin"] = await A.evaluate('R.store.get("adm", "")')
@@ -359,22 +389,22 @@ async def main():
 
         async with Step("04 Admin cadastra consultor"):
             await go(A, "#/equipe"); await must(A, "#nName")
-            st["seller_email"] = f"e2e.{STAMP}@exemplo.com"
+            st["seller_phone"] = TEL(45)
             st["seller_name"] = f"Consultor E2E {STAMP[-4:]}"
-            await A.fill("#nName", st["seller_name"]); await A.fill("#nEmail", st["seller_email"]); await A.fill("#nPhone", "44988887777")
+            await A.fill("#nName", st["seller_name"]); await A.fill("#nPhone", st["seller_phone"])
             await A.click("#nSave"); el = await must(A, "code.pw")
             st["seller_pw"] = (await el.text_content()).strip()
             await shot(A, "04-equipe")
 
         async with Step("05 Consultor entra, completa CPF, assinatura e troca a senha"):
-            await seller_login(V, st["seller_email"], st["seller_pw"])
+            await seller_login(V, st["seller_phone"], st["seller_pw"], TEL_D(45))
             await go(V, "#/perfil"); await must(V, "#pDoc")
             await V.fill("#pDoc", "529.982.247-25"); await V.click("#pSave"); await V.wait_for_timeout(600)
             await draw(V, "#mePad canvas"); await V.click("#meSigSave"); await must(V, "#mySig")
             await V.fill("#pwCur", st["seller_pw"]); await V.fill("#pwNew", "SenhaNova123"); await V.click("#pwSave"); await V.wait_for_timeout(700)
             assert "trocada" in (await toast(V)), await toast(V)
             st["seller_pw"] = "SenhaNova123"
-            await seller_login(V, st["seller_email"], st["seller_pw"])
+            await seller_login(V, st["seller_phone"], st["seller_pw"])
 
         async with Step("06 Consultor cria pasta de cliente"):
             await V.click("#fNew"); await V.fill("#fNewName", f"{TAG} Cliente do consultor {STAMP[-4:]}"); await V.click("#fNewForm button[type=submit]")
@@ -532,15 +562,17 @@ async def main():
                 await C.goto(BASE + "/p/aberta"); await must(C, "#orderForm")
 
         async with Step("26a Outra empresa não vê nada desta"):
-            s_, d_ = api("admin/signup", {"name": "Outra Pessoa", "company": f"{TAG} Outra {STAMP[-5:]}", "email": f"e2e.outra.{STAMP}@exemplo.com", "password": "SenhaOutra123"})
+            s_, d_ = api("admin/signup", {"name": "Outra Pessoa", "company": f"{TAG} Outra {STAMP[-5:]}", "phone": TEL(46), "password": "SenhaOutra123"})
+            assert s_ == 200 and d_.get("verify"), d_
+            s_, d_ = api("admin/signup-confirm", {"phone": TEL(46), "code": last_code(TEL_D(46))})
             assert s_ == 200, d_
             t2 = d_["token"]
             s_, b2 = api("admin/bootstrap", tok=t2)
             assert s_ == 200 and not b2["proposals"] and not b2["catalog"] and not b2["users"], "outra empresa enxergou dados"
             s_, _ = api(f"admin/proposals/{st['p_admin']}", tok=t2)
             assert s_ == 404, f"outra empresa abriu a proposta ({s_})"
-            s_, _ = api("admin/users", {"name": "Copia Consultor", "email": st["seller_email"]}, t2)
-            assert s_ == 400, "e-mail de consultor repetido em outra empresa"
+            s_, _ = api("admin/users", {"name": "Copia Consultor", "phone": st["seller_phone"]}, t2)
+            assert s_ == 400, "WhatsApp de consultor repetido em outra empresa"
             s_, b1 = api("admin/bootstrap", tok=TOKEN["admin"])
             COMPANY["name"] = b1["company"]["name"]  # acompanha o nome salvo em Dados da empresa
             assert COMPANY["name"] == b1["settings"]["agency"]["name"], "nome da empresa não acompanhou Dados da empresa"
@@ -551,13 +583,13 @@ async def main():
             await A.goto(BASE + "/entrar")
             await A.evaluate("localStorage.clear()")
             await A.reload()
-            await must(A, "#em")
+            await must(A, "#tel")
             assert not await A.query_selector('[data-mode="dono"]'), "o login das contas não deve mostrar o acesso do dono"
             await A.goto(BASE + "/dono")
             await A.evaluate("localStorage.clear()")
             await A.reload()
             await must(A, "#pw")
-            assert not await A.query_selector("#em"), "o login do dono não pede e-mail"
+            assert not await A.query_selector("#tel"), "o login do dono não pede o WhatsApp"
             await A.fill("#pw", ADMIN_PW); await A.click("button[type=submit]")
             await must(A, "[data-enter]")
             await must(A, "#sSave")
@@ -722,12 +754,16 @@ async def main():
                 print("  só no servidor local")
             else:
                 s_, sup = api("admin/login", {"password": ADMIN_PW}); stok = sup["token"]
-                s_, nc = api("admin/companies", {"name": "Pessoa Vencida", "company": f"{TAG} Vencida {STAMP[-5:]}", "email": f"e2e.vencida.{STAMP}@exemplo.com"}, stok)
+                s_, nc = api("admin/companies", {"name": "Pessoa Vencida", "company": f"{TAG} Vencida {STAMP[-5:]}", "phone": TEL(47)}, stok)
+                assert s_ == 200, nc
                 f = Path(__file__).parent.parent / "dev" / ".data" / "companies" / (nc["company"]["id"] + ".json")
                 cj = json.loads(f.read_text()); cj["billing"]["trialEndsAt"] = "2020-01-01"; f.write_text(json.dumps(cj))
                 api("admin/system", {"billing": {"enforce": True}}, stok, "PUT")
                 try:
-                    s_, lg = api("admin/login", {"email": nc["company"]["owner"]["email"], "password": nc["password"]})
+                    s_, lg = api("admin/login", {"login": TEL(47), "password": nc["password"]})
+                    assert s_ == 200 and lg.get("verify"), "primeiro acesso não pediu o código"
+                    s_, lg = api("admin/login-verify", {"phone": TEL(47), "code": last_code(TEL_D(47))})
+                    assert s_ == 200, lg
                     s_, b_ = api("admin/bootstrap", tok=lg["token"]); assert s_ == 200 and b_["sub"]["status"] == "vencida" and not b_["sub"]["allowed"], b_.get("sub")
                     s_, e_ = api("admin/settings", {"validityDays": 10}, lg["token"], "PUT"); assert s_ == 402, (s_, e_)
                     s_, _ = api("admin/billing/checkout", {"plan": "mensal"}, lg["token"]); assert s_ == 200, "não deixou escolher o plano"
@@ -744,8 +780,8 @@ async def main():
             await shot(C, "31f-divulgacao-preco", full=True)
 
         async with Step("31g Segurança: tentativas de senha limitadas, cabeçalhos e chave da sessão"):
-            fake = f"ninguem.{STAMP}@exemplo.com"
-            codes = [api("admin/login", {"email": fake, "password": "errada123"})[0] for _ in range(9)]
+            fake = TEL(48)
+            codes = [api("admin/login", {"login": fake, "password": "errada123"})[0] for _ in range(9)]
             assert codes[:8] == [401] * 8 and codes[8] == 429, codes
             h = urllib.request.urlopen(BASE + "/").headers
             for k in ("Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Permissions-Policy"):
@@ -756,6 +792,24 @@ async def main():
             pl = base64.urlsafe_b64encode(json.dumps({"exp": int(time.time() * 1000) + 864e5, "role": "super"}).encode()).rstrip(b"=").decode()
             sg = base64.urlsafe_b64encode(hmac.new(key, pl.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
             s_, _ = api("admin/bootstrap", tok=pl + "." + sg); assert s_ == 401, "token forjado entrou"
+
+        async with Step("31h WhatsApp: nova senha por código, número já usado e troca de número"):
+            s_, d_ = api("admin/signup", {"name": "Copia", "company": "Copia", "phone": OWNER["phone"], "password": "Outra12345"})
+            assert s_ == 400 and "já tem conta" in d_["error"], d_
+            await A.goto(BASE + "/entrar"); await A.evaluate("localStorage.clear()"); await A.reload(); await must(A, "#tel")
+            await A.click('[data-mode="esqueci"]'); await must(A, "#tel")
+            await A.fill("#tel", OWNER["phone"]); await A.click("button[type=submit]")
+            await must(A, "#code"); await A.fill("#code", last_code(TEL_D(44))); await A.fill("#pw", "SenhaNova456"); await A.click("button[type=submit]")
+            await must(A, ".adm-top")
+            OWNER["password"] = "SenhaNova456"
+            TOKEN["admin"] = await A.evaluate('R.store.get("adm", "")')
+            await go(A, "#/conta"); await must(A, "#phNew")
+            await A.fill("#phNew", TEL(49)); await A.click("#phSend"); await must(A, "#phCode")
+            await A.fill("#phCode", last_code(TEL_D(49))); await A.click("#phOk"); await A.wait_for_timeout(900)
+            s_, _ = api("admin/login", {"login": OWNER["phone"], "password": OWNER["password"]}); assert s_ == 401, "número antigo continua entrando"
+            s_, lg = api("admin/login", {"login": TEL(49), "password": OWNER["password"]}); assert s_ == 200 and lg.get("token"), lg
+            OWNER["phone"] = TEL(49); TOKEN["admin"] = lg["token"]
+            await shot(A, "31h-conta-whatsapp", full=False)
 
         async with Step("32 Despublicar e publicar a proposta"):
             pid = await new_proposal(A, f"{TAG} Publicação", ["projeto-avulso"])

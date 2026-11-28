@@ -130,8 +130,7 @@
         <p class="fine" style="max-width:44ch;margin-top:22px">${t("s_legal")}</p></div>
       <form class="form" id="signForm" novalidate>
         <div class="field full"><label for="s-name">${t("f_signer")}</label><input id="s-name" name="name" autocomplete="name" value="${esc(C.client.representative || C.client.name || "")}"><span class="err" id="e-name"></span></div>
-        <div class="field"><label for="s-doc">${br() ? t("f_sdoc") : t("f_sdoc_x")}</label><input id="s-doc" name="doc"${br() ? ' inputmode="numeric"' : ""} value="${esc(docDefault)}"><span class="hint">${br() ? t("sdoc_hint") : t("sdoc_hint_x")}</span><span class="err" id="e-doc"></span></div>
-        <div class="field"><label for="s-email">${t("f_copy")}</label><input id="s-email" name="email" type="email" autocomplete="email" value="${esc(C.client.email || "")}"><span class="err" id="e-email"></span></div>
+        <div class="field full"><label for="s-doc">${br() ? t("f_sdoc") : t("f_sdoc_x")}</label><input id="s-doc" name="doc"${br() ? ' inputmode="numeric"' : ""} value="${esc(docDefault)}"><span class="hint">${br() ? t("sdoc_hint") : t("sdoc_hint_x")}</span><span class="err" id="e-doc"></span></div>
         <div class="pad-wrap"><div class="bar"><span>${t("how_sign")}</span></div>
           <div class="sig-mode" role="radiogroup"><label><input type="radio" name="smode" value="desenho"${mode === "desenho" ? " checked" : ""}><span>${t("m_draw")}</span></label><label><input type="radio" name="smode" value="dados"${mode === "dados" ? " checked" : ""}><span>${br() ? t("m_data") : t("m_data_x")}</span></label></div>
           <div id="padBox"${mode === "dados" ? " hidden" : ""}><div class="bar"><span>${t("your_sig")}</span><button type="button" class="link-btn" id="padClear">${t("clear")}</button></div><div id="pad"></div></div>
@@ -161,21 +160,19 @@
     if (sending) return;
     const f = $("#signForm"), msg = $("#signMsg");
     msg.textContent = "";
-    const name = f.name.value.trim(), doc = f.doc.value.trim(), email = f.email.value.trim();
+    const name = f.name.value.trim(), doc = f.doc.value.trim();
     let bad = null;
     const err = (k, x) => { $("#e-" + k).textContent = x; bad = bad || k; };
     if (name.length < 5 || !name.includes(" ")) err("name", t("e_full"));
     if (br() ? !R.validDoc(doc) : doc.length < 4) err("doc", br() ? t("e_doc") : t("e_doc_x"));
-    if (!R.validEmail(email)) err("email", t("e_email"));
     if (mode === "desenho" && pad.isEmpty()) err("pad", t("e_pad"));
     if (bad) { const el = bad === "pad" ? $("#pad") : f[bad]; el.scrollIntoView({ block: "center" }); if (el.focus) el.focus(); return; }
     if (!f.accept.checked) { msg.textContent = t("m_accept_c"); return; }
     sending = true;
     const btn = $("#signBtn"); btn.classList.add("is-busy"); btn.textContent = t("signing");
     try {
-      const r = await R.api(`public/contract/${encodeURIComponent(id)}/sign`, { method: "POST", body: JSON.stringify({ name, doc: br() ? R.digits(doc) : doc, email, method: mode, image: mode === "desenho" ? pad.toPNG() : undefined, accept: true, hash: C.hash }) });
-      emailed = !!r.emailed;
-      C = r; C.client.email = email;
+      const r = await R.api(`public/contract/${encodeURIComponent(id)}/sign`, { method: "POST", body: JSON.stringify({ name, doc: br() ? R.digits(doc) : doc, method: mode, image: mode === "desenho" ? pad.toPNG() : undefined, accept: true, hash: C.hash }) });
+      C = r;
       const sg = sigsHTML(), box = $("#sigs"); box.className = sg.cls; box.innerHTML = sg.h;
       $("#heroTitle").innerHTML = titleHTML();
       $("#heroSub").innerHTML = t("c_sub_ok", { n: esc(firstName(name)) });
