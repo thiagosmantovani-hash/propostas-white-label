@@ -12,7 +12,7 @@ import crypto from "node:crypto";
 import { demo_signature } from "../lib/brand/demo-signature.mjs";
 import { EXEMPLO_CATALOG } from "../lib/catalogo-exemplo.mjs";
 import { brand, brandOf, useBrand, brandCss, fontList, okColor, parseImage, getImage, putImage, delImage, BRAND_DEFAULTS, cleanPageTexts, LAYOUTS, cleanStyle } from "../lib/brand.mjs";
-import { emailEnabled, notifyAddress, sendEmail, layout, esc, sentLog } from "../lib/email.mjs";
+import { normPhone, maskPhone, fmtPhone, sendOtp, checkOtp, otpProvider, otpLabel, otpLog } from "../lib/verificacao.mjs";
 import { adminConfigured, checkPassword, issueToken, session, hashPassword, verifyPassword, newPassword, pwMark, initAuth, secretMaterial } from "../lib/auth.mjs";
 import { billingConfig, cleanBillingConfig, newBilling, subscriptionOf, ensureBilling, applyPayment, requestPlan, cancelRenewal, setExempt, extendTrial, billingHistory, planPrice, PLANS, provider, providerLabel } from "../lib/billing.mjs";
 import { json, fail, token, sha256, nowISO, todayBR, addDays, clean, onlyDigits, validDoc, fmtDoc, computeTotals, clientIP, money, dateLongL } from "../lib/util.mjs";
@@ -52,14 +52,17 @@ async function saveContract(c) { await linkDoc(c); c.updatedAt = nowISO(); await
 /* ---------- empresas e logins (dados do sistema todo) ---------- */
 const getCompany = async (cid) => (okCompanyId(cid) ? (await rootDb()).get("companies/" + cid) : null);
 async function saveCompany(c) { c.updatedAt = nowISO(); await (await rootDb()).set("companies/" + c.id, c); return c; }
-// e-mail é único no sistema: logins/<hash do e-mail> -> { cid, uid } (uid vazio = responsável pela empresa)
-const loginKey = (email) => "logins/" + sha256(String(email || "").trim().toLowerCase()).slice(0, 40);
-const getLogin = async (email) => (await rootDb()).get(loginKey(email));
-const setLogin = async (email, v) => (await rootDb()).set(loginKey(email), { ...v, email: String(email).toLowerCase() });
-const delLogin = async (email) => (await rootDb()).del(loginKey(email));
+// O acesso é único no sistema: logins/<hash> -> { cid, uid } (uid vazio = responsável pela empresa).
+// A chave é "tel:<número com DDI>" (WhatsApp) ou, nas contas antigas e na conta de teste, o e-mail.
+const telId = (phone) => "tel:" + phone;
+const loginIdOf = (x) => (x && normPhone(x.phone) ? telId(normPhone(x.phone)) : x && x.email ? String(x.email).toLowerCase() : "");
+const loginKey = (id) => "logins/" + sha256(String(id || "").trim().toLowerCase()).slice(0, 40);
+const getLogin = async (id) => (id ? (await rootDb()).get(loginKey(id)) : null);
+const setLogin = async (id, v) => (await rootDb()).set(loginKey(id), { ...v, id: String(id).toLowerCase() });
+const delLogin = async (id) => (id ? (await rootDb()).del(loginKey(id)) : null);
 async function saveUser(u) { u.updatedAt = nowISO(); await (await db()).set("users/" + u.id, u); return u; }
 const log = (p, type, text) => { (p.history ||= []).push({ at: nowISO(), type, text }); };
-const userPublic = (u) => u && ({ id: u.id, name: u.name, doc: u.doc, email: u.email, phone: u.phone, active: u.active !== false, hasSignature: !!u.signature, createdAt: u.createdAt });
+const userPublic = (u) => u && ({ id: u.id, name: u.name, doc: u.doc, email: u.email || "", phone: u.phone, phoneVerified: !!u.phoneVerified, active: u.active !== false, hasSignature: !!u.signature, createdAt: u.createdAt });
 
 async function nextNumber() {
   const year = todayBR().slice(0, 4);
@@ -167,7 +170,7 @@ function contractPublic(c, settings) {
     client: { name: c.client?.name, doc: c.client?.doc ? (isBR(c) ? fmtDoc(c.client.doc) : c.client.doc) : "", email: c.client?.email, representative: c.client?.representative },
     agencyName: c.agencyName, seller: c.seller ? { name: c.seller.name, phone: c.seller.phone } : null,
     signatures: { agency: sig(c.signatures?.agency), client: sig(c.signatures?.client), intermediary: sig(c.signatures?.intermediary) },
-    agency: agencyPublic(settings, c.lang || "pt"), emailEnabled: emailEnabled(),
+    agency: agencyPublic(settings, c.lang || "pt"),
   };
 }
 
@@ -221,7 +224,8 @@ async function publicCompany(url, kind, id) {
 
 async function publicEntry(req, context, url, parts) {
   const [kind, id] = parts;
-  if (kind === "__emails" && process.env.EMAIL_TEST === "1") return json({ sent: sentLog });
+  // modo de teste da confirmação por WhatsApp: últimos códigos (só com OTP_TEST=1, nunca no ar)
+  if (kind === "__codes" && process.env.OTP_TEST === "1") return json({ codes: otpLog });
   if (kind === "system" && req.method === "GET") { const sys = await getSystem(), bc = billingConfig(sys); return json({ productName: sys.productName, signupOpen: signupOpen(sys), plans: { trialDays: bc.trialDays, mensal: bc.monthly, anual: bc.annual, currency: bc.currency } }); }
   // avisos de pagamento dos provedores (Asaas, Stripe): /api/public/billing/webhook/<provedor>
   if (kind === "billing" && id === "webhook" && req.method === "POST") return billingWebhook(req, parts[2]);
@@ -312,8 +316,6 @@ async function publicRoutes(req, context, url, [kind, id, action]) {
       p.status = "recusada";
       log(p, "recusada", "Cliente informou que não é o momento" + (p.declined.reason ? `: ${p.declined.reason}` : ""));
       await saveProposal(p);
-      const to = notifyAddress(settings);
-      if (to) await sendEmail({ to, subject: `Proposta ${p.number} recusada · ${p.client?.name || ""}`, html: layout("Proposta recusada", `<p>${esc(p.client?.name)} informou que não é o momento.</p>${p.declined.reason ? `<p>Motivo: ${esc(p.declined.reason)}</p>` : ""}`) });
       return json(await proposalPublic(p, settings, contract));
     }
     return fail("Método não permitido.", 405);
@@ -337,28 +339,17 @@ async function publicRoutes(req, context, url, [kind, id, action]) {
       if (!b.accept) return fail(T.acceptC);
       if (name.length < 5 || !name.includes(" ")) return fail(T.fullName);
       if (!docOk(doc, br)) return fail(br ? T.doc : T.docX);
-      if (!validEmail(email)) return fail(T.email);
+      if (email && !validEmail(email)) return fail(T.email);
       const method = sigMethod(b.method);
       if (method === "desenho" && !pngData(b.image)) return fail(T.draw);
       if (b.hash !== c.hash) return fail(T.changed, 409);
-      c.signatures.client = { name, doc, email, method, image: method === "desenho" ? b.image : null, at: nowISO(), ip: clientIP(req, context), ua: clean(req.headers.get("user-agent"), 300) };
+      c.signatures.client = { name, doc, email: email || c.client?.email || "", method, image: method === "desenho" ? b.image : null, at: nowISO(), ip: clientIP(req, context), ua: clean(req.headers.get("user-agent"), 300) };
       c.status = "assinado";
       c.signedAt = c.signatures.client.at;
       await saveContract(c);
       const p = await getProposal(c.proposalId);
       if (p) { p.status = "assinada"; log(p, "assinada", `Contrato assinado por ${name}`); await saveProposal(p); }
-      let emailed = false;
-      if (emailEnabled()) {
-        const pdf = Buffer.from(await contractPdf(c)).toString("base64");
-        const att = [{ filename: `contrato-${c.number}.pdf`, content: pdf }];
-        const link = `${url.origin}/c/${c.id}`;
-        const E = { pt: [`Sua cópia do contrato · ${brand().name}`, "Contrato assinado", `Olá, ${esc(name.split(" ")[0])}. Obrigado pela confiança. Segue em anexo a sua cópia do contrato nº ${esc(c.number)}, assinado pelas partes.`, "Ver contrato"], es: [`Tu copia del contrato · ${brand().name}`, "Contrato firmado", `Hola, ${esc(name.split(" ")[0])}. Gracias por tu confianza. Adjuntamos tu copia del contrato nº ${esc(c.number)}, firmado por las partes.`, "Ver contrato"], en: [`Your copy of the agreement · ${brand().name}`, "Agreement signed", `Hi ${esc(name.split(" ")[0])}, thank you for your trust. Attached is your copy of agreement no. ${esc(c.number)}, signed by the parties.`, "View agreement"] }[c.lang || "pt"];
-        const r = await sendEmail({ to: email, subject: E[0], html: layout(E[1], `<p>${E[2]}</p>`, { url: link, label: E[3] }), attachments: att });
-        emailed = r.sent;
-        const to = [notifyAddress(settings), c.seller?.email].filter(Boolean);
-        if (to.length) await sendEmail({ to, subject: `Contrato ${c.number} assinado · ${c.client?.name}`, html: layout("Contrato assinado", `<p>${esc(name)} assinou o contrato nº ${esc(c.number)}.</p>`, { url: link, label: "Abrir contrato" }), attachments: att });
-      }
-      return json({ ...contractPublic(c, settings), emailed });
+      return json(contractPublic(c, settings));
     }
     return fail("Método não permitido.", 405);
   }
@@ -403,26 +394,6 @@ async function placeOrder(p, body, settings, req, context, opts = {}) {
   p.declined = null;
   log(p, "pedido", `${again ? "Pedido atualizado" : "Pedido enviado"} por ${client.name}: ${totals.lines.map((l) => l.name).join(", ")}`);
   const seller = p.sellerId ? await getUser(p.sellerId) : null;
-  // confirmação automática para o cliente
-  if (!opts.silent && emailEnabled() && client.email) {
-    const origin0 = new URL(req.url).origin, lang = p.lang || "pt", mm0 = (v) => money(v, p.currency || "BRL", lang);
-    const first = esc(String(client.representative || client.name).split(" ")[0]);
-    const CF = {
-      pt: [`Recebemos seu pedido · ${brand().name}`, "Pedido recebido", `Olá, ${first}! Recebemos o seu pedido pela proposta de ${esc(brand().name)}. Em breve enviamos o contrato para assinatura on-line.`, "Ver meu pedido", "Serviços escolhidos"],
-      es: [`Recibimos tu pedido · ${brand().name}`, "Pedido recibido", `¡Hola, ${first}! Recibimos tu pedido por la propuesta de ${esc(brand().name)}. En breve te enviamos el contrato para firmar en línea.`, "Ver mi pedido", "Servicios elegidos"],
-      en: [`We received your order · ${brand().name}`, "Order received", `Hi ${first}! We received your order through ${esc(brand().name)}'s proposal. We'll send you the agreement to sign online shortly.`, "View my order", "Chosen services"],
-    }[lang] || null;
-    if (CF) await sendEmail({ to: client.email, replyTo: seller?.email || undefined, subject: CF[0], html: layout(CF[1], `<p>${CF[2]}</p><p><b>${CF[4]}</b></p><ul>${totals.lines.map((l) => `<li>${esc(l.name)}: ${esc(l.optionLabel)} · ${esc(l.kind === "mensal" ? mm0(l.total) + ({ pt: "/mês", es: "/mes", en: "/mo" }[lang] || "") : mm0(l.total))}</li>`).join("")}</ul>`, { url: `${origin0}/p/${p.id}#pedido`, label: CF[3] }) });
-  }
-  const to = [notifyAddress(settings), seller?.email].filter(Boolean);
-  if (to.length && !opts.silent) {
-    const origin = new URL(req.url).origin;
-    const mm = (v) => money(v, p.currency || "BRL", "pt");
-    await sendEmail({
-      to, subject: `${again ? "Pedido atualizado" : "Novo pedido"} · ${client.name} · proposta ${p.number}`,
-      html: layout(again ? "Pedido atualizado" : "Novo pedido recebido", `<p><b>${esc(client.name)}</b> escolheu:</p><ul>${totals.lines.map((l) => `<li>${esc(l.name)}: ${esc(l.optionLabel)} (${esc(l.kind === "mensal" ? mm(l.total) + "/mês" : mm(l.total))})</li>`).join("")}</ul>${p.order.notes ? `<p>Observações: ${esc(p.order.notes)}</p>` : ""}`, { url: `${origin}/admin#/proposta/${p.id}`, label: "Abrir no painel" }),
-    });
-  }
   return { ok: true };
 }
 
@@ -444,12 +415,12 @@ async function hit(keys, windowMs) {
 async function clearHits(keys) { const root = await rootDb(); for (const k of keys) await root.del(tKey(k)); }
 const waitMsg = (min) => `Muitas tentativas seguidas. Por segurança, espere ${min} minuto${min > 1 ? "s" : ""} e tente de novo.`;
 const MIN15 = 15 * 60e3, HOUR = 60 * 60e3;
-const companyPublic = (c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, blocked: !!c.blocked, demo: !!c.demo, createdBy: c.createdBy || "cadastro", note: c.note || "", lastLoginAt: c.lastLoginAt || null, owner: { name: c.owner.name, email: c.owner.email } });
+const companyPublic = (c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, blocked: !!c.blocked, demo: !!c.demo, createdBy: c.createdBy || "cadastro", note: c.note || "", lastLoginAt: c.lastLoginAt || null, owner: { name: c.owner.name, phone: c.owner.phone || "", phoneFmt: fmtPhone(c.owner.phone || ""), phoneVerified: !!c.owner.phoneVerified, email: c.owner.email || "" } });
 
 async function adminEntry(req, context, url, parts) {
   const [kind] = parts;
   const m = req.method;
-  if (["login", "signup", "forgot", "reset"].includes(kind) && m === "POST") {
+  if (["login", "login-verify", "signup", "signup-confirm", "forgot", "reset"].includes(kind) && m === "POST") {
     if (!adminConfigured()) return fail("Defina a variável ADMIN_PASSWORD no Netlify para liberar o sistema.", 503);
     return accountRoutes(req, url, kind, context);
   }
@@ -463,96 +434,134 @@ async function adminEntry(req, context, url, parts) {
   return withCompany(company.id, () => adminRoutes(req, context, url, parts, sess, company));
 }
 
-// login, criação de conta e nova senha
+// login, criação de conta e nova senha, tudo pelo número de WhatsApp confirmado por código
+// (contas antigas e a conta modelo de teste ainda entram com o e-mail)
 async function accountRoutes(req, url, kind, context) {
   const b = await req.json().catch(() => ({}));
-  const email = clean(b.email, 160).toLowerCase();
   const pw = typeof b.password === "string" ? b.password : "";
   const ip = "ip:" + (clientIP(req, context) || "?");
+  const login = String(b.login ?? b.phone ?? b.email ?? "").trim();
+  const phone = login.includes("@") ? "" : normPhone(login);
+  const ident = phone ? telId(phone) : login.toLowerCase();
+  const sys = await getSystem();
+  const otpFail = (r) => json({ error: r.error, wait: r.wait || 0 }, r.status || 400);
+
+  // depois da senha certa, quem ainda não confirmou o número recebe o código e confirma em login-verify
+  const askCode = async (who, data) => {
+    const r = await sendOtp(who.phone, "acesso", data);
+    if (!r.sent) return otpFail(r);
+    return json({ verify: true, phone: r.masked, cooldown: r.cooldown });
+  };
 
   if (kind === "login") {
-    // por IP: 30 erros em 15 minutos (vários usuários no mesmo escritório); por e-mail (ou senha do dono): 8
-    const keys = [ip + ":login", "login:" + (email || "dono")];
+    // por IP: 30 erros em 15 minutos (vários usuários no mesmo escritório); por número/e-mail (ou senha do dono): 8
+    const keys = [ip + ":login", "login:" + (ident || "dono")];
     const wait = await tooMany(keys, [30, 8]);
     if (wait) return fail(waitMsg(wait), 429);
     const bad = async (msg) => { await hit(keys, MIN15); await slow(); return fail(msg, 401); };
-    if (!email) {
+    if (!login) {
       // dono do sistema: só a senha (ADMIN_PASSWORD)
       if (!checkPassword(pw)) return bad("Senha incorreta.");
       await clearHits(keys.slice(1));
       return json({ token: issueToken({ role: "super" }), role: "super" });
     }
-    if (email === DEMO_EMAIL) await ensureDemoAccount(url, context); // a conta modelo de teste nasce no primeiro acesso
-    const l = await getLogin(email);
+    if (ident === DEMO_EMAIL) await ensureDemoAccount(url, context); // a conta modelo de teste nasce no primeiro acesso
+    const l = ident ? await getLogin(ident) : null;
     const c = l && (await getCompany(l.cid));
-    if (!c) return bad("E-mail ou senha incorretos.");
-    const seen = async () => { c.lastLoginAt = nowISO(); await saveCompany(c); await clearHits(keys.slice(1)); };
+    const wrong = phone ? "WhatsApp ou senha incorretos." : "Dados de acesso incorretos.";
+    if (!c) return bad(wrong);
     if (!l.uid) {
-      if (!verifyPassword(pw, c.owner)) return bad("E-mail ou senha incorretos.");
+      if (!verifyPassword(pw, c.owner)) return bad(wrong);
       if (c.blocked) return fail("O acesso desta empresa está suspenso. Fale com o suporte do sistema.", 403);
-      await seen();
+      await clearHits(keys.slice(1));
+      if (c.owner.phone && !c.owner.phoneVerified) return askCode(c.owner, { cid: c.id, uid: null });
+      c.lastLoginAt = nowISO(); await saveCompany(c);
       return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
     }
     const u = await withCompany(c.id, () => getUser(l.uid));
-    if (!u || u.active === false || !verifyPassword(pw, u)) return bad("E-mail ou senha incorretos.");
+    if (!u || u.active === false || !verifyPassword(pw, u)) return bad(wrong);
     if (c.blocked) return fail("O acesso desta empresa está suspenso. Fale com o administrador da sua empresa.", 403);
-    await seen();
+    await clearHits(keys.slice(1));
+    if (u.phone && !u.phoneVerified && normPhone(u.phone)) return askCode({ phone: normPhone(u.phone) }, { cid: c.id, uid: u.id });
+    c.lastLoginAt = nowISO(); await saveCompany(c);
     return json({ token: issueToken({ role: "seller", cid: c.id, uid: u.id, pv: pwMark(u) }), role: "seller", company: c.id });
   }
 
+  // primeiro acesso: confirma o número com o código e entra
+  if (kind === "login-verify") {
+    if (!phone) return fail("Informe o WhatsApp com DDD.");
+    const r = await checkOtp(phone, "acesso", b.code);
+    if (!r.ok) return otpFail(r);
+    const { cid, uid } = r.data || {};
+    const c = await getCompany(cid);
+    if (!c) return fail("Conta não encontrada.", 404);
+    c.lastLoginAt = nowISO();
+    if (!uid) { c.owner.phoneVerified = true; await saveCompany(c); return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id }); }
+    await saveCompany(c);
+    return withCompany(c.id, async () => {
+      const u = await getUser(uid);
+      if (!u || u.active === false) return fail("Acesso desativado. Fale com o administrador da sua empresa.", 403);
+      u.phoneVerified = true; u.phone = phone; await saveUser(u);
+      // contas antigas (acesso por e-mail): o número confirmado passa a valer também para entrar
+      const lp = await getLogin(telId(phone)); if (!lp) await setLogin(telId(phone), { cid: c.id, uid: u.id });
+      return json({ token: issueToken({ role: "seller", cid: c.id, uid: u.id, pv: pwMark(u) }), role: "seller", company: c.id });
+    });
+  }
+
+  // criar conta: nome, empresa, WhatsApp e senha; a conta só nasce depois do código confirmado
   if (kind === "signup") {
     if (b.website) return fail("Não foi possível criar a conta.", 400); // campo escondido: só robôs preenchem
-    { const w = await tooMany([ip + ":signup"], 10); if (w) return fail(waitMsg(w), 429); await hit([ip + ":signup"], HOUR); }
-    const sys = await getSystem();
     if (!signupOpen(sys)) return fail("O cadastro de novas contas está fechado no momento.", 403);
     const name = clean(b.name, 120), companyName = clean(b.company, 120);
     if (name.length < 3) return fail("Informe o seu nome.");
     if (companyName.length < 2) return fail("Informe o nome da empresa (ou o seu nome, se você trabalha como freelancer).");
-    if (!validEmail(email)) return fail("Informe um e-mail válido.");
+    if (!phone) return fail("Informe um WhatsApp válido, com DDD.");
     if (pw.length < 8) return fail("A senha precisa de pelo menos 8 caracteres.");
-    if (await getLogin(email)) { await slow(); return fail("Já existe uma conta com esse e-mail. Use Entrar ou Esqueci minha senha."); }
-    const c = await createCompany({ name, companyName, email, password: pw, by: "cadastro", sys });
+    { const w = await tooMany([ip + ":signup"], 20); if (w) return fail(waitMsg(w), 429); await hit([ip + ":signup"], HOUR); }
+    if (await getLogin(telId(phone))) { await slow(); return fail("Este WhatsApp já tem conta. Use Entrar ou Esqueci minha senha."); }
+    const r = await sendOtp(phone, "cadastro", { name, companyName, ...hashPassword(pw) });
+    if (!r.sent) return otpFail(r);
+    return json({ verify: true, phone: r.masked, cooldown: r.cooldown });
+  }
+  if (kind === "signup-confirm") {
+    if (!phone) return fail("Informe o WhatsApp com DDD.");
+    if (!signupOpen(sys)) return fail("O cadastro de novas contas está fechado no momento.", 403);
+    const r = await checkOtp(phone, "cadastro", b.code);
+    if (!r.ok) return otpFail(r);
+    const d = r.data || {};
+    if (await getLogin(telId(phone))) return fail("Este WhatsApp já tem conta. Use Entrar ou Esqueci minha senha.");
+    const c = await createCompany({ name: d.name, companyName: d.companyName, phone, passHash: { salt: d.salt, hash: d.hash }, verified: true, by: "cadastro", sys });
     c.lastLoginAt = nowISO(); await saveCompany(c);
     return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
   }
 
+  // nova senha: código no WhatsApp (a resposta é a mesma exista ou não a conta)
   if (kind === "forgot") {
-    // resposta igual exista ou não a conta, para não revelar quais e-mails estão cadastrados
-    if (!emailEnabled()) return json({ ok: true, emailEnabled: false });
-    { const k = [ip + ":forgot", "forgot:" + email], w = await tooMany(k, 5); if (w) return fail(waitMsg(w), 429); await hit(k, HOUR); }
-    const l = validEmail(email) ? await getLogin(email) : null;
-    const c = l && (await getCompany(l.cid));
-    if (c) {
-      const tok = token(24);
-      await (await rootDb()).set("resets/" + sha256(tok).slice(0, 40), { email, exp: Date.now() + 3600e3 });
-      await withCompany(c.id, async () => {
-        await getSettings(); // usa a marca da empresa no e-mail
-        await sendEmail({ to: email, subject: "Crie uma nova senha", html: layout("Nova senha", `<p>Recebemos um pedido para criar uma nova senha de acesso ao painel de propostas de <b>${esc(c.name)}</b>.</p><p>O link vale por 1 hora. Se não foi você, ignore este e-mail: a senha atual continua valendo.</p>`, { url: `${url.origin}/admin#/nova-senha/${tok}`, label: "Criar nova senha" }) });
-      });
-    }
-    return json({ ok: true, emailEnabled: true });
+    if (!phone) return fail("Informe o WhatsApp da conta, com DDD.");
+    { const k = [ip + ":forgot", "forgot:" + phone], w = await tooMany(k, 5); if (w) return fail(waitMsg(w), 429); await hit(k, HOUR); }
+    if (!otpProvider()) return fail("A confirmação por WhatsApp ainda não está configurada no sistema. Fale com o suporte.", 503);
+    const l = await getLogin(telId(phone));
+    if (l && (await getCompany(l.cid))) { const r = await sendOtp(phone, "senha"); if (!r.sent && r.status !== 502) return otpFail(r); }
+    return json({ ok: true, phone: maskPhone(phone) });
   }
-
   if (kind === "reset") {
+    if (!phone) return fail("Informe o WhatsApp da conta, com DDD.");
     { const w = await tooMany([ip + ":reset"], 10); if (w) return fail(waitMsg(w), 429); await hit([ip + ":reset"], MIN15); }
-    const tok = clean(b.token, 80);
-    const key = "resets/" + sha256(tok).slice(0, 40);
-    const r = tok ? await (await rootDb()).get(key) : null;
-    if (!r || !(r.exp > Date.now())) return fail("Este link de nova senha venceu ou já foi usado. Peça um novo em Esqueci minha senha.", 400);
     if (pw.length < 8) return fail("A senha precisa de pelo menos 8 caracteres.");
-    const l = await getLogin(r.email);
+    const r = await checkOtp(phone, "senha", b.code);
+    if (!r.ok) return otpFail(r);
+    const l = await getLogin(telId(phone));
     const c = l && (await getCompany(l.cid));
     if (!c) return fail("Conta não encontrada.", 404);
-    await (await rootDb()).del(key);
     if (!l.uid) {
-      Object.assign(c.owner, hashPassword(pw));
+      Object.assign(c.owner, hashPassword(pw)); c.owner.phoneVerified = true;
       await saveCompany(c);
       return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
     }
     return withCompany(c.id, async () => {
       const u = await getUser(l.uid);
       if (!u || u.active === false) return fail("Acesso desativado. Fale com o administrador da sua empresa.", 403);
-      Object.assign(u, hashPassword(pw));
+      Object.assign(u, hashPassword(pw)); u.phoneVerified = true;
       await saveUser(u);
       return json({ token: issueToken({ role: "seller", cid: c.id, uid: u.id, pv: pwMark(u) }), role: "seller", company: c.id });
     });
@@ -571,11 +580,13 @@ const DEMO_EMAIL = "conta.teste@example.com";
 const DEMO_PASSWORD = "teste1234";
 
 // cria uma empresa nova com o responsável, o índice de login e os dados iniciais
-async function createCompany({ name, companyName, email, password, by, sys, extra = {} }) {
-  const c = { id: token(9), name: companyName, createdAt: nowISO(), blocked: false, createdBy: by || "cadastro", owner: { name, email, ...hashPassword(password) }, billing: newBilling(billingConfig(sys)), ...extra };
+// phone: acesso pelo WhatsApp (verified = já confirmado por código); email: só a conta modelo de teste
+async function createCompany({ name, companyName, phone, email, password, passHash, verified, by, sys, extra = {} }) {
+  const owner = { name, ...(phone ? { phone, phoneVerified: !!verified } : { email }), ...(passHash || hashPassword(password)) };
+  const c = { id: token(9), name: companyName, createdAt: nowISO(), blocked: false, createdBy: by || "cadastro", owner, billing: newBilling(billingConfig(sys)), ...extra };
   await saveCompany(c);
-  await setLogin(email, { cid: c.id, uid: null });
-  await withCompany(c.id, async () => (await db()).set("settings", { agency: { name: companyName, email, representative: name }, validityDays: sys.defaultValidityDays || 15 }));
+  await setLogin(loginIdOf(owner), { cid: c.id, uid: null });
+  await withCompany(c.id, async () => (await db()).set("settings", { agency: { name: companyName, representative: name }, whatsapp: phone || "", validityDays: sys.defaultValidityDays || 15 }));
   return c;
 }
 
@@ -587,11 +598,10 @@ async function deleteCompany(c) {
   for (const k of keys) {
     const sub = k.slice(pre.length);
     if (/^(proposals|contracts)\//.test(sub)) await root.del("links/" + sub.split("/")[1]);
-    if (/^users\//.test(sub)) { const u = await root.get(k); if (u && u.email) { const l = await getLogin(u.email); if (l && l.cid === c.id) await delLogin(u.email); } }
+    if (/^users\//.test(sub)) { const u = await root.get(k); for (const id of [loginIdOf(u), u && u.email]) { const l = id && (await getLogin(id)); if (l && l.cid === c.id) await delLogin(id); } }
     await root.del(k);
   }
-  const l = await getLogin(c.owner.email);
-  if (l && l.cid === c.id) await delLogin(c.owner.email);
+  for (const id of [loginIdOf(c.owner), c.owner.email]) { const l = id && (await getLogin(id)); if (l && l.cid === c.id) await delLogin(id); }
   await root.del("companies/" + c.id);
 }
 
@@ -645,7 +655,7 @@ async function superRoutes(req, url, [kind, id, action], context) {
       // receita mensal recorrente estimada: mensal pelo preço cheio, anual dividido por 12
       mrr: Math.round(rows.filter((c) => c.sub.status === "ativa").reduce((a, c) => a + (c.sub.plan === "anual" ? bc.annual / 12 : bc.monthly), 0) * 100) / 100,
     };
-    return json({ role: "super", companies: rows, stats, system: sys, signupOpen: signupOpen(sys), signupEnvClosed: env("SIGNUP_CLOSED") === "1", emailEnabled: emailEnabled(), demoEmail: DEMO_EMAIL, demoPassword: DEMO_PASSWORD, billing: bc, billingProvider: providerLabel(bc.provider) });
+    return json({ role: "super", companies: rows, stats, system: sys, signupOpen: signupOpen(sys), signupEnvClosed: env("SIGNUP_CLOSED") === "1", whatsappOtp: otpLabel(), whatsappOtpOn: !!otpProvider(), demoEmail: DEMO_EMAIL, demoPassword: DEMO_PASSWORD, billing: bc, billingProvider: providerLabel(bc.provider) });
   }
 
   if (kind === "system" && m === "PUT") {
@@ -671,13 +681,14 @@ async function superRoutes(req, url, [kind, id, action], context) {
   // criar conta pelo painel do dono (a senha gerada aparece para você enviar ao responsável)
   if (m === "POST" && !id) {
     const b = await body();
-    const name = clean(b.name, 120), companyName = clean(b.company, 120), email = clean(b.email, 160).toLowerCase();
+    const name = clean(b.name, 120), companyName = clean(b.company, 120), phone = normPhone(b.phone);
     if (name.length < 3) return fail("Informe o nome do responsável.");
     if (companyName.length < 2) return fail("Informe o nome da empresa.");
-    if (!validEmail(email)) return fail("Informe um e-mail válido.");
-    if (await getLogin(email)) return fail("Já existe uma conta (ou consultor) com esse e-mail.");
+    if (!phone) return fail("Informe um WhatsApp válido, com DDD.");
+    if (await getLogin(telId(phone))) return fail("Já existe uma conta (ou consultor) com esse WhatsApp.");
     const pw = newPassword();
-    const c = await createCompany({ name, companyName, email, password: pw, by: "dono", sys, extra: { note: clean(b.note, 400) } });
+    // o responsável confirma o número com o código no primeiro acesso
+    const c = await createCompany({ name, companyName, phone, verified: false, password: pw, by: "dono", sys, extra: { note: clean(b.note, 400) } });
     return json({ company: companyPublic(c), password: pw });
   }
 
@@ -691,14 +702,16 @@ async function superRoutes(req, url, [kind, id, action], context) {
       await withCompany(c.id, async () => { const s = await db(); const cur = (await s.get("settings")) || {}; cur.agency = { ...(cur.agency || {}), name: c.name }; await s.set("settings", cur); });
     }
     if ("ownerName" in b && clean(b.ownerName, 120).length >= 3) c.owner.name = clean(b.ownerName, 120);
-    if ("ownerEmail" in b) {
-      const email = clean(b.ownerEmail, 160).toLowerCase();
-      if (email !== c.owner.email) {
-        if (!validEmail(email)) return fail("Informe um e-mail válido.");
-        if (await getLogin(email)) return fail("Esse e-mail já está em uso no sistema.");
-        await delLogin(c.owner.email);
-        await setLogin(email, { cid: c.id, uid: null });
-        c.owner.email = email;
+    if ("ownerPhone" in b && !c.demo) {
+      const phone = normPhone(b.ownerPhone);
+      if (phone !== c.owner.phone) {
+        if (!phone) return fail("Informe um WhatsApp válido, com DDD.");
+        if (await getLogin(telId(phone))) return fail("Esse WhatsApp já está em uso no sistema.");
+        await delLogin(loginIdOf(c.owner));
+        if (c.owner.email) await delLogin(c.owner.email);
+        delete c.owner.email;
+        c.owner.phone = phone; c.owner.phoneVerified = false; // confirma no próximo acesso
+        await setLogin(telId(phone), { cid: c.id, uid: null });
       }
     }
     if ("maxSellers" in b) c.maxSellers = b.maxSellers === null || b.maxSellers === "" ? null : Math.max(0, Math.min(500, Math.round(num(b.maxSellers))));
@@ -813,12 +826,45 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     return json({
       role: sess.role, me: me ? userPublic(me) : null, company: isAdm ? companyPublic(company) : { id: company.id, name: company.name }, su: !!sess.su, notice: sys.notice || "",
       sub: isAdm ? sub : { status: sub.status, allowed: sub.allowed },
-      settings: pub, catalog, fonts: fontList(), emailEnabled: emailEnabled(), exampleKey: isAdm ? previewKey("exemplo:" + company.id) : "", layouts: LAYOUTS, defaultTemplate: TEMPLATES.pt, templateVars: TEMPLATE_VARS, today: todayBR(),
+      settings: pub, catalog, fonts: fontList(), exampleKey: isAdm ? previewKey("exemplo:" + company.id) : "", layouts: LAYOUTS, defaultTemplate: TEMPLATES.pt, templateVars: TEMPLATE_VARS, today: todayBR(),
       countries: COUNTRIES, currencies: CURRENCIES,
       users: isAdm ? users.map(userPublic) : [],
       folders: folders.filter((f) => isAdm || f.ownerId === me.id).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")).map((f) => ({ id: f.id, name: f.name, ownerId: f.ownerId || null, ownerName: f.ownerId ? (users.find((u) => u.id === f.ownerId) || {}).name || "" : "" })),
       proposals: proposals.filter((p) => !p.deleted && owns(p)).sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1)).map((p) => summary(p, contracts, users)),
     });
+  }
+
+  // trocar (ou cadastrar, nas contas antigas) o WhatsApp de acesso de quem está logado: código no número novo
+  if (kind === "phone" && m === "POST") {
+    if (sess.su) return fail("Entre com o acesso da empresa para trocar o WhatsApp.", 403);
+    if (company.demo && isAdm) return fail("Na conta modelo de teste o acesso não muda (o login é compartilhado).", 403);
+    const b = await req.json().catch(() => ({}));
+    const phone = normPhone(b.phone);
+    if (!phone) return fail("Informe um WhatsApp válido, com DDD.");
+    const who = isAdm ? company.owner : me;
+    if (!id) {
+      if (phone === normPhone(who.phone) && who.phoneVerified) return fail("Este já é o seu WhatsApp de acesso.");
+      const l = await getLogin(telId(phone));
+      if (l && !(l.cid === company.id && (l.uid || null) === (isAdm ? null : me.id))) return fail("Esse WhatsApp já está em uso no sistema.");
+      const r = await sendOtp(phone, "troca", { cid: company.id, uid: isAdm ? null : me.id });
+      if (!r.sent) return json({ error: r.error, wait: r.wait || 0 }, r.status || 400);
+      return json({ verify: true, phone: r.masked, cooldown: r.cooldown });
+    }
+    if (id === "confirm") {
+      const r = await checkOtp(phone, "troca", b.code);
+      if (!r.ok) return json({ error: r.error }, r.status || 400);
+      if (!r.data || r.data.cid !== company.id || (r.data.uid || null) !== (isAdm ? null : me.id)) return fail("Código de outra conta.", 403);
+      const l = await getLogin(telId(phone));
+      if (l && !(l.cid === company.id && (l.uid || null) === (isAdm ? null : me.id))) return fail("Esse WhatsApp já está em uso no sistema.");
+      const old = loginIdOf(who);
+      if (old && old !== telId(phone)) await delLogin(old);
+      if (who.email) { await delLogin(who.email); delete who.email; } // daqui em diante o acesso é só pelo WhatsApp
+      who.phone = phone; who.phoneVerified = true;
+      await setLogin(telId(phone), { cid: company.id, uid: isAdm ? null : me.id });
+      if (isAdm) await saveCompany(company); else await saveUser(me);
+      return json({ ok: true, phone: fmtPhone(phone), company: isAdm ? companyPublic(company) : null, me: isAdm ? null : userPublic(me) });
+    }
+    return fail("Rota não encontrada.", 404);
   }
 
   // resumo do mês: propostas, serviços, aceitas, recusadas e valores fechados (o consultor vê só as dele)
@@ -834,7 +880,6 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     if (m === "PUT") {
       const b = await req.json().catch(() => ({}));
       if ("name" in b && clean(b.name, 120).length >= 5) me.name = clean(b.name, 120);
-      if ("phone" in b) me.phone = clean(b.phone, 30);
       if ("doc" in b && validDoc(b.doc)) me.doc = onlyDigits(b.doc);
       if ("signature" in b) me.signature = b.signature && pngData(b.signature) ? b.signature : null;
       if (b.newPassword) {
@@ -854,18 +899,19 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     const deny = adminOnly(); if (deny) return deny;
     if (m === "POST" && !id) {
       const b = await req.json().catch(() => ({}));
-      const email = clean(b.email, 160).toLowerCase();
+      const phone = normPhone(b.phone);
       if (clean(b.name, 120).length < 5) return fail("Informe o nome completo do consultor.");
-      if (!validEmail(email)) return fail("Informe um e-mail válido.");
+      if (!phone) return fail("Informe o WhatsApp do consultor, com DDD. É o acesso dele ao sistema.");
       if (b.doc && !validDoc(b.doc)) return fail("CPF inválido.");
-      // o e-mail é o login, então vale para o sistema todo (não pode repetir em outra empresa)
-      if (await getLogin(email)) return fail("Esse e-mail já está em uso no sistema. Use outro e-mail para este consultor.");
+      // o WhatsApp é o acesso, então vale para o sistema todo (não pode repetir em outra empresa)
+      if (await getLogin(telId(phone))) return fail("Esse WhatsApp já está em uso no sistema.");
       const max = maxSellersOf(company, await getSystem());
       if (max && (await listDocs("users/")).filter((x) => !x.demo).length >= max) return fail(`O seu plano permite até ${max} consultor${max > 1 ? "es" : ""}. Fale com o suporte para aumentar.`, 403);
       const pw = newPassword();
-      const u = { id: token(), name: clean(b.name, 120), doc: onlyDigits(b.doc), email, phone: clean(b.phone, 30), active: true, signature: null, createdAt: nowISO(), ...hashPassword(pw) };
+      // o consultor confirma o número com o código no primeiro acesso
+      const u = { id: token(), name: clean(b.name, 120), doc: onlyDigits(b.doc), phone, phoneVerified: false, active: true, signature: null, createdAt: nowISO(), ...hashPassword(pw) };
       await saveUser(u);
-      await setLogin(email, { cid: company.id, uid: u.id });
+      await setLogin(telId(phone), { cid: company.id, uid: u.id });
       return json({ user: userPublic(u), password: pw });
     }
     const u = await getUser(id);
@@ -873,7 +919,16 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     if (m === "PUT") {
       const b = await req.json().catch(() => ({}));
       if ("name" in b && clean(b.name, 120).length >= 5) u.name = clean(b.name, 120);
-      if ("phone" in b) u.phone = clean(b.phone, 30);
+      if ("phone" in b) {
+        const phone = normPhone(b.phone);
+        if (!phone) return fail("Informe o WhatsApp do consultor, com DDD.");
+        if (phone !== normPhone(u.phone)) {
+          if (await getLogin(telId(phone))) return fail("Esse WhatsApp já está em uso no sistema.");
+          for (const id of [loginIdOf(u), u.email]) { const l = id && (await getLogin(id)); if (l && l.uid === u.id) await delLogin(id); }
+          u.phone = phone; u.phoneVerified = false; delete u.email; // o consultor confirma o número novo no próximo acesso
+          await setLogin(telId(phone), { cid: company.id, uid: u.id });
+        }
+      }
       if ("doc" in b) { if (b.doc && !validDoc(b.doc)) return fail("CPF inválido."); u.doc = onlyDigits(b.doc); }
       if ("active" in b) u.active = !!b.active;
       await saveUser(u);
@@ -1040,29 +1095,6 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
       const zip = zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, [v instanceof Uint8Array ? v : new Uint8Array(v), { level: 6 }]])));
       return new Response(zip, { headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="${base}.zip"`, "cache-control": "no-store" } });
     }
-    // envia o link da proposta direto para o e-mail do cliente
-    if (m === "POST" && action === "email") {
-      if (!emailEnabled()) return fail("Os e-mails automáticos não estão ativos.", 409);
-      const b = await req.json().catch(() => ({}));
-      const to = clean(b.to || p.client.email, 160);
-      if (!validEmail(to)) return fail("Informe um e-mail válido para o cliente.");
-      const lang = p.lang || "pt", link = `${url.origin}/p/${p.id}`;
-      const nm = esc(String(p.client.contact || p.client.name || "").split(" ")[0]);
-      const E = {
-        pt: [`Proposta comercial · ${brand().name}`, "Sua proposta está pronta", `Olá${nm ? ", " + nm : ""}! Preparamos a proposta de ${esc(brand().name)} para ${esc(p.client.name)}. Pelo link você vê os serviços, escolhe as opções e já envia o pedido.`, "Abrir a proposta"],
-        es: [`Propuesta comercial · ${brand().name}`, "Tu propuesta está lista", `¡Hola${nm ? ", " + nm : ""}! Preparamos la propuesta de ${esc(brand().name)} para ${esc(p.client.name)}. En el enlace ves los servicios, eliges las opciones y envías tu pedido.`, "Abrir la propuesta"],
-        en: [`Commercial proposal · ${brand().name}`, "Your proposal is ready", `Hi${nm ? " " + nm : ""}! We've prepared ${esc(brand().name)}'s proposal for ${esc(p.client.name)}. At the link you can see the services, pick the options and send your order.`, "Open the proposal"],
-      }[lang] || null;
-      const seller = p.sellerId ? await getUser(p.sellerId) : null;
-      const r = await sendEmail({ to, replyTo: seller?.email || undefined, subject: E[0], html: layout(E[1], `<p>${E[2]}</p>`, { url: link, label: E[3] }) });
-      if (!r.sent) return fail(r.error ? `Não foi possível enviar: ${r.error}` : "Não foi possível enviar o e-mail.", 502);
-      if (!p.client.email) p.client.email = to;
-      if (!p.sentAt) p.sentAt = nowISO();
-      if (p.status === "rascunho") p.status = "enviada";
-      log(p, "enviada", `Proposta enviada por e-mail para ${to}${me ? " (" + me.name + ")" : ""}`);
-      await saveProposal(p);
-      return out();
-    }
     if (m === "POST" && action === "reopen") {
       if (contract && contract.status !== "cancelado") return fail("Cancele o contrato antes de reabrir a proposta.", 409);
       p.status = p.firstViewAt ? "visualizada" : p.sentAt ? "enviada" : "rascunho";
@@ -1168,13 +1200,7 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
       c.status = "aguardando";
       await saveContract(c);
       if (p) { p.status = "contrato"; log(p, "contrato", `Contrato assinado pela empresa e enviado ao cliente${me ? " por " + me.name : ""}`); await saveProposal(p); }
-      let emailed = false;
-      if (b.emailClient && emailEnabled() && c.client?.email) {
-        const E = { pt: [`Contrato para assinatura · ${brand().name}`, "Seu contrato está pronto", `O contrato com os serviços que você escolheu já está assinado por ${esc(brand().name)}. Falta só a sua assinatura.`, "Ler e assinar"], es: [`Contrato para firmar · ${brand().name}`, "Tu contrato está listo", `El contrato con los servicios que elegiste ya está firmado por ${esc(brand().name)}. Solo falta tu firma.`, "Leer y firmar"], en: [`Agreement to sign · ${brand().name}`, "Your agreement is ready", `The agreement with the services you chose has been signed by ${esc(brand().name)}. It only needs your signature.`, "Read and sign"] }[c.lang || "pt"];
-        const r = await sendEmail({ to: c.client.email, subject: E[0], html: layout(E[1], `<p>${E[2]}</p>`, { url: `${url.origin}/c/${c.id}`, label: E[3] }) });
-        emailed = r.sent;
-      }
-      return out({ emailed });
+      return out();
     }
     if (m === "POST" && action === "cancel") {
       if (c.status === "assinado") return fail("Contratos assinados não podem ser cancelados por aqui.", 409);
@@ -1210,7 +1236,8 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     const byId = (i) => pool[i % pool.length];
     const pw = newPassword();
     // e-mail fictício e único (o login vale para o sistema todo)
-    const seller = { id: token(), demo: true, name: "Consultor de Teste", doc: "52998224725", email: `consultor.teste.${token(4).toLowerCase().replace(/[^a-z0-9]/g, "x")}@exemplo.com`, phone: "11999990000", active: true, signature: demo_signature, createdAt: nowISO(), ...hashPassword(pw) };
+    // consultor fictício: entra com o e-mail de teste; o telefone é só de exemplo (já marcado como confirmado, nunca recebe código)
+    const seller = { id: token(), demo: true, phoneVerified: true, name: "Consultor de Teste", doc: "52998224725", email: `consultor.teste.${token(4).toLowerCase().replace(/[^a-z0-9]/g, "x")}@exemplo.com`, phone: "11999990000", active: true, signature: demo_signature, createdAt: nowISO(), ...hashPassword(pw) };
     await saveUser(seller);
     await setLogin(seller.email, { cid: company.id, uid: seller.id });
     const folder = { id: token(), demo: true, name: "Modelo de teste", ownerId: null, createdAt: nowISO() };
