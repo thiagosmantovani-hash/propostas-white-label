@@ -12,7 +12,6 @@ export const BRAND_DEFAULTS = {
   colors: { primary: "#1f6049", accent: "#d4f26a", dark: "#0e2a20", light: "#f4f7f1" },
   fontTitle: "alexandria",
   fontText: "alexandria",
-  emailFromName: "",
   layout: "neutro", // modelo da página da proposta (LAYOUTS)
   style: { caps: false, corners: "redondo", hero: "marca", hide: [], theme: "escuro" }, // ajustes finos do modelo; theme = tema da página do cliente
   logos: { escuro: null, claro: null }, // versão da imagem salva (ou null): escuro = logo para fundo escuro, claro = para fundo claro

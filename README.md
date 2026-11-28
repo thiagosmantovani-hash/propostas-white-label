@@ -22,10 +22,9 @@ No painel, em **Empresa** (`/admin#/empresa`), o administrador define:
 - contato: WhatsApp, Instagram e site (rodapé e botões de WhatsApp);
 - logo para fundo escuro e para fundo claro (PNG; sem logo, o nome aparece em texto). O de fundo claro também vai para o PDF do contrato;
 - cores (principal, destaque, fundo escuro e fundo claro) e fontes dos títulos e dos textos, servidas em `/api/public/brand.css`;
-- textos da proposta: slogan, apresentação, quem somos, número em destaque, como trabalhamos e próximos passos;
-- nome do remetente dos e-mails;
-- assinatura padrão (o sistema não vem com nenhuma assinatura);
-- galeria de trabalhos (aparece nas propostas quando tem pelo menos uma imagem).
+- assinatura padrão (o sistema não vem com nenhuma assinatura): desenhada ou só com nome completo e CPF/CNPJ.
+
+Em **Página da proposta** (`/admin#/pagina`) ficam o modelo, as cores, as fontes, os textos (slogan, apresentação, quem somos, número em destaque, como trabalhamos e próximos passos) e a **galeria de trabalhos** (aparece nas propostas quando tem pelo menos uma imagem). Os e-mails saem com o nome da empresa.
 
 Sem nada preenchido, o sistema usa uma identidade neutra ("Sua empresa").
 
@@ -33,8 +32,8 @@ Sem nada preenchido, o sistema usa uma identidade neutra ("Sua empresa").
 
 1. **Painel** (`/admin`, com senha): monte a proposta escolhendo os serviços do catálogo, ajuste valores e formas de pagamento, gere o link e envie por WhatsApp, e-mail ou cópia. O painel mostra quantas vezes o cliente abriu.
 2. **Proposta** (`/p/<código>`): página interativa. O cliente escolhe os serviços e a forma de pagamento de cada um, vê os totais na hora e envia o pedido com os dados para o contrato. Também pode avisar que não é o momento.
-3. **Contrato**: no painel, o pedido vira contrato preenchido pelo modelo. Você revisa, assina desenhando na tela e libera o link.
-4. **Assinatura** (`/c/<código>`): o cliente lê, assina desenhando e baixa a cópia em PDF com as duas assinaturas e o registro de auditoria (data, hora, IP, navegador e código SHA-256 do texto).
+3. **Contrato**: no painel, o pedido vira contrato preenchido pelo modelo. Você revisa, assina (desenhando ou só com nome e CPF/CNPJ) e libera o link.
+4. **Assinatura** (`/c/<código>`): o cliente lê e escolhe como assinar: desenhando na tela ou só com o nome completo e o CPF/CNPJ. Baixa a cópia em PDF com as assinaturas e o registro de auditoria (data, hora, IP, navegador, forma de assinatura e código SHA-256 do texto).
 5. **Link aberto** (opcional, `/p/aberta`): todos os serviços ativos; cada pedido vira uma proposta no painel. Começa desligado.
 
 ## Catálogo de serviços
@@ -80,15 +79,26 @@ Com `GMAIL_USER` (ex.: propostas.suaempresa@gmail.com) e `GMAIL_APP_PASSWORD` (s
 - ao cliente: confirmação do pedido, link do contrato e cópia assinada em PDF;
 - à empresa (e-mail salvo em Dados da empresa) e ao consultor: avisos de pedido, recusa e assinatura;
 - a quem pediu: o link de **Esqueci minha senha**.
-O remetente é do sistema todo; o nome que aparece é o da empresa de cada conta.
+O endereço que envia é do sistema todo; o nome que aparece é o da empresa de cada conta.
 Nunca use a senha normal da conta. `EMAIL_TEST=1` registra os envios sem mandar nada (para testes; lista em /api/public/__emails).
 
-## WhatsApp automático (Z-API)
+## Resumo do mês
 
-Com `ZAPI_INSTANCE`, `ZAPI_TOKEN` e `ZAPI_CLIENT_TOKEN` (painel da z-api.io, serviço pago), o sistema envia pelo número conectado:
-- ao cliente: proposta (botão "Enviar no WhatsApp (automático)"), pedido recebido, contrato para assinar e cópia assinada;
-- à empresa (WhatsApp de Dados da empresa) e ao consultor: novo pedido, recusa, assinatura do intermediador e contrato assinado.
-As duas frentes ligam e desligam em Configurações › WhatsApp automático, que tem botão de teste. `WA_TEST=1` registra os envios sem mandar nada.
+Em **Resumo** (`/admin#/resumo`), mês a mês: valor fechado (projetos e mensalidades), contratos assinados, propostas criadas, aceitas, recusadas e vencidas, taxas de aceite e de fechamento, aceitas ainda sem contrato, tabela por serviço (oferecido, escolhido, fechado e valor), por consultor e a lista das propostas do mês. Compara com o mês anterior, imprime ou salva em PDF e baixa a planilha (.csv). Cada acontecimento conta no mês em que aconteceu (horário de Brasília). O consultor vê só as propostas dele.
+
+## Planos e cobrança
+
+- Toda conta nova começa com o **teste grátis** (7 dias). Depois, **plano mensal** (R$ 19,90) ou **anual** (R$ 199). Dias de teste e preços ficam no painel do dono (Planos e cobrança) e aparecem na página de divulgação, no cadastro e na tela **Conta e plano › Plano e pagamento** de cada conta.
+- Hoje a cobrança é por **confirmação manual**: a conta escolhe o plano, o pedido aparece no painel do dono (botão Cobrança), e o dono registra o pagamento. O plano soma 1 mês ou 12 meses a partir do fim do período atual. O dono também estende o teste, dá cortesia ou cancela a renovação.
+- **Exigir plano depois do teste** (painel do dono, desligado por padrão): conta vencida fica só para consulta, sem criar nem enviar propostas. Os links já enviados aos clientes continuam funcionando.
+- Pronto para integrar: `netlify/lib/billing.mjs` tem a camada de provedores (manual, Asaas, Stripe) com `checkout()` e `webhook()`, e o endereço `/api/public/billing/webhook/<provedor>` registra os pagamentos confirmados. Para ligar um provedor, implemente as duas funções dele e defina `BILLING_PROVIDER`.
+
+## Segurança
+
+- Sessões assinadas com uma chave que junta `ADMIN_PASSWORD` com `SESSION_SECRET` (ou, sem ela, uma chave aleatória criada uma vez e guardada no armazenamento). Trocar `ADMIN_PASSWORD` encerra todos os acessos.
+- Limite de tentativas: 8 senhas erradas por e-mail (ou na senha do dono) e 30 por IP em 15 minutos; cadastro, “Esqueci minha senha”, nova senha e pedidos pelo link aberto também têm limite.
+- Cabeçalhos em `netlify.toml`: política de conteúdo (só scripts do próprio site), proibido abrir as páginas dentro de outros sites, HTTPS obrigatório, sem câmera, microfone e localização.
+- Erros internos mostram só um código; o detalhe fica no registro do Netlify.
 
 ## Arquivo e exclusão
 
@@ -101,8 +111,12 @@ As duas frentes ligam e desligam em Configurações › WhatsApp automático, qu
 |---|---|---|
 | `ADMIN_PASSWORD` | sim | Senha do dono do sistema (painel com todas as empresas) |
 | `SESSION_SECRET` | recomendada | Texto aleatório longo; reforça a sessão do painel |
+| `GMAIL_USER` e `GMAIL_APP_PASSWORD` | não | Liga os e-mails automáticos pelo Gmail (ou use `RESEND_API_KEY` e `EMAIL_FROM`) |
+| `BILLING_PROVIDER` | não | `manual` (padrão), `asaas` ou `stripe`, quando a integração estiver feita |
+| `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` | não | Cobrança pelo Asaas (quando ligada) |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | não | Cobrança pelo Stripe (quando ligada) |
 | `RESEND_API_KEY` | não | Liga os e-mails automáticos (resend.com) |
-| `EMAIL_FROM` | não | Remetente verificado no Resend, ex.: `propostas@seudominio.com.br` (o nome vem de Dados da empresa) |
+| `EMAIL_FROM` | não | Remetente verificado no Resend, ex.: `propostas@seudominio.com.br` (o nome é o da empresa) |
 | `SIGNUP_CLOSED` | não | `1` fecha o cadastro de novas empresas |
 | `BLOBS_STORE` | não | Nome do armazenamento no Netlify Blobs. Padrão `propostas` |
 

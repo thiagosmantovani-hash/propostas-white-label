@@ -32,8 +32,8 @@ export function layout(title, bodyHtml, cta) {
   <p style="font-size:11px;color:#6b6b6b">${esc(b.name)}${b.tagline ? " · " + esc(b.tagline) : ""}</p>
   </td></tr></table></body></html>`;
 }
-// Nome do remetente: o definido em Dados da empresa ou o nome da empresa
-const fromName = () => String(brand().emailFromName || brand().name).replace(/["<>\r\n]/g, "");
+// Nome do remetente: o nome da empresa (Dados da empresa)
+const fromName = () => String(brand().name).replace(/["<>\r\n]/g, "");
 
 export async function sendEmail({ to, subject, html, attachments, replyTo }) {
   if (!emailEnabled() || !to || (Array.isArray(to) && !to.length)) return { sent: false, reason: "disabled" };

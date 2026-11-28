@@ -7,13 +7,14 @@ import { db, rootDb, listDocs, withCompany, currentCompany, okCompanyId, env } f
 import { DEFAULT_CATALOG, DEFAULT_SETTINGS, AGENCY_I18N, COUNTRIES, CURRENCIES, localizeService } from "../lib/catalog.mjs";
 import { TEMPLATES, TEMPLATE_VARS, contractVars, fillTemplate, missingVars, numberClauses, withEssentials } from "../lib/contract.mjs";
 import { contractPdf, documentPdf } from "../lib/pdf.mjs";
-import { waEnabled, sendWa, sendWaMany, waText, waLog } from "../lib/whatsapp.mjs";
 import { zipSync, strToU8 } from "fflate";
+import crypto from "node:crypto";
 import { demo_signature } from "../lib/brand/demo-signature.mjs";
 import { EXEMPLO_CATALOG } from "../lib/catalogo-exemplo.mjs";
 import { brand, brandOf, useBrand, brandCss, fontList, okColor, parseImage, getImage, putImage, delImage, BRAND_DEFAULTS, cleanPageTexts, LAYOUTS, cleanStyle } from "../lib/brand.mjs";
-import { emailEnabled, emailSender, notifyAddress, sendEmail, layout, esc, sentLog } from "../lib/email.mjs";
-import { adminConfigured, checkPassword, issueToken, session, hashPassword, verifyPassword, newPassword, pwMark } from "../lib/auth.mjs";
+import { emailEnabled, notifyAddress, sendEmail, layout, esc, sentLog } from "../lib/email.mjs";
+import { adminConfigured, checkPassword, issueToken, session, hashPassword, verifyPassword, newPassword, pwMark, initAuth, secretMaterial } from "../lib/auth.mjs";
+import { billingConfig, cleanBillingConfig, newBilling, subscriptionOf, ensureBilling, applyPayment, requestPlan, cancelRenewal, setExempt, extendTrial, billingHistory, planPrice, PLANS, provider, providerLabel } from "../lib/billing.mjs";
 import { json, fail, token, sha256, nowISO, todayBR, addDays, clean, onlyDigits, validDoc, fmtDoc, computeTotals, clientIP, money, dateLongL } from "../lib/util.mjs";
 
 const LOCKED = ["contrato", "assinada"];
@@ -27,7 +28,7 @@ async function getSettings() {
   const s = currentCompany() ? (await (await db()).get("settings")) || {} : {};
   const ag = Object.fromEntries(Object.entries(s.agency || {}).filter(([, v]) => v != null && String(v).trim() !== ""));
   // assinatura padrão da empresa: só a desenhada no painel (não há assinatura fixa no sistema)
-  const sig = s.agencySignature && s.agencySignature.custom && s.agencySignature.image ? s.agencySignature : null;
+  const sig = s.agencySignature && s.agencySignature.custom && (s.agencySignature.image || s.agencySignature.method === "dados") ? s.agencySignature : null;
   const out = { ...DEFAULT_SETTINGS, ...s, agency: { ...DEFAULT_SETTINGS.agency, ...ag }, agencySignature: sig };
   out.brand = brandOf(out);
   useBrand(out);
@@ -100,11 +101,12 @@ function cleanService(s, keepI18n = false) {
 function cleanIncludes(v) { return (Array.isArray(v) ? v : []).slice(0, 8).map((g) => ({ title: clean(g.title, 80), items: (Array.isArray(g.items) ? g.items : []).map((x) => clean(x, 160)).filter(Boolean).slice(0, 30) })).filter((g) => g.items.length || g.title); }
 function cleanSteps(v) { return (Array.isArray(v) ? v : []).slice(0, 8).map((x) => ({ title: clean(x.title, 80), text: clean(x.text, 600) })).filter((x) => x.title); }
 
-// números que recebem os avisos internos (empresa e consultor da proposta)
-const teamPhones = (settings, seller) => (settings.waAgency === false ? [] : [settings.whatsapp, seller?.phone]);
-const firstName = (n) => String(n || "").trim().split(/\s+/)[0] || "";
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
 const pngData = (s) => typeof s === "string" && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(s) && s.length < 400000;
+// Forma de assinar: "desenho" (assinatura desenhada na tela) ou "dados" (só nome completo e CPF/CNPJ, com aceite expresso)
+const sigMethod = (m) => (m === "dados" ? "dados" : "desenho");
+// assinatura salva (padrão da empresa ou perfil do consultor) que pode ser usada: desenhada com imagem, ou por nome e documento
+const sigUsable = (sg) => !!sg && (sg.method === "dados" ? String(sg.name || "").trim().length >= 5 && validDoc(sg.doc) : pngData(sg.image));
 const isBR = (x) => !x.country || x.country === "BR";
 // Documento: CPF/CNPJ válido no Brasil; no exterior, texto livre (RUC, CUIT, EIN, passaporte...)
 const docOk = (doc, br) => (br ? validDoc(doc) : clean(doc, 40).length >= 4);
@@ -132,7 +134,8 @@ function agencyPublic(settings, lang = "pt") {
 }
 // proposta fora do ar: despublicada pelo painel ou vencida sem pedido
 const isOffline = (p) => p.published === false || isExpired(p);
-const previewKey = (id) => sha256(`${process.env.SESSION_SECRET || process.env.ADMIN_PASSWORD || "propostas"}:preview:${id}`).slice(0, 20);
+// chave da prévia (painel): assinada com a mesma chave das sessões, então não dá para adivinhar
+const previewKey = (id) => crypto.createHmac("sha256", secretMaterial() || crypto.randomBytes(16)).update("preview:" + id).digest("hex").slice(0, 24);
 const isExpired = (p) => !!p.validUntil && p.validUntil < todayBR() && !["pedido", ...LOCKED].includes(p.status);
 
 async function sellerPublic(id) {
@@ -157,7 +160,7 @@ async function proposalPublic(p, settings, contract) {
 }
 
 function contractPublic(c, settings) {
-  const sig = (s) => (s ? { name: s.name, doc: s.doc ? (/^\d{11}$|^\d{14}$/.test(s.doc) ? fmtDoc(s.doc) : s.doc) : "", image: s.image, at: s.at } : null);
+  const sig = (s) => (s ? { name: s.name, doc: s.doc ? (/^\d{11}$|^\d{14}$/.test(s.doc) ? fmtDoc(s.doc) : s.doc) : "", image: s.image || null, method: s.image ? "desenho" : "dados", at: s.at } : null);
   return {
     id: c.id, number: c.number, status: c.status, text: c.text, hash: c.hash, sentAt: c.sentAt, proposalId: c.proposalId,
     lang: c.lang || "pt", currency: c.currency || "BRL", country: c.country || "BR",
@@ -186,12 +189,15 @@ export default async (req, context) => {
   const url = new URL(req.url);
   const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
   try {
+    await initAuth();
     if (parts[0] === "public") return await publicEntry(req, context, url, parts.slice(1));
     if (parts[0] === "admin") return await adminEntry(req, context, url, parts.slice(1));
     return fail("Rota não encontrada.", 404);
   } catch (e) {
-    console.error(e);
-    return fail(`Erro interno (${String((e && e.message) || e).slice(0, 160)}). Tente de novo; se continuar, envie esta mensagem para o suporte.`, 500);
+    // o detalhe do erro fica só no registro do Netlify; quem usa recebe um código para informar ao suporte
+    const ref = crypto.randomBytes(4).toString("hex");
+    console.error("erro", ref, e);
+    return fail(`Erro interno (código ${ref}). Tente de novo; se continuar, envie este código para o suporte.`, 500);
   }
 };
 
@@ -216,7 +222,9 @@ async function publicCompany(url, kind, id) {
 async function publicEntry(req, context, url, parts) {
   const [kind, id] = parts;
   if (kind === "__emails" && process.env.EMAIL_TEST === "1") return json({ sent: sentLog });
-  if (kind === "system" && req.method === "GET") { const sys = await getSystem(); return json({ productName: sys.productName, signupOpen: signupOpen(sys) }); }
+  if (kind === "system" && req.method === "GET") { const sys = await getSystem(), bc = billingConfig(sys); return json({ productName: sys.productName, signupOpen: signupOpen(sys), plans: { trialDays: bc.trialDays, mensal: bc.monthly, anual: bc.annual, currency: bc.currency } }); }
+  // avisos de pagamento dos provedores (Asaas, Stripe): /api/public/billing/webhook/<provedor>
+  if (kind === "billing" && id === "webhook" && req.method === "POST") return billingWebhook(req, parts[2]);
   const cid = await publicCompany(url, kind, id);
   if (!cid) {
     if (kind === "proposal") return fail("Proposta não encontrada.", 404);
@@ -255,6 +263,9 @@ async function publicRoutes(req, context, url, [kind, id, action]) {
       if (!catalog.length) return fail("Este link não está disponível.", 404);
       if (m === "GET" && !action) return json(await proposalPublic({ id: "aberta", number: "", open: true, title: "Monte a sua proposta", message: "", status: "aberta", services: catalog, client: {}, lang: "pt", currency: "BRL", country: "BR" }, settings));
       if (m === "POST" && action === "order") {
+        const tk = ["ip:" + (clientIP(req, context) || "?") + ":open:" + currentCompany()];
+        const w = await tooMany(tk, 20); if (w) return fail(waitMsg(w), 429);
+        await hit(tk, HOUR);
         const p = { id: token(), number: await nextNumber(), createdAt: nowISO(), status: "rascunho", source: "link aberto", title: "Pedido pelo link aberto", message: "", validUntil: addDays(todayBR(), settings.validityDays || 15), services: catalog, client: {}, lang: "pt", currency: "BRL", country: "BR", views: 1, history: [] };
         log(p, "criada", "Pedido feito pelo link aberto");
         const res = await placeOrder(p, await req.json().catch(() => ({})), settings, req, context);
@@ -302,7 +313,6 @@ async function publicRoutes(req, context, url, [kind, id, action]) {
       log(p, "recusada", "Cliente informou que não é o momento" + (p.declined.reason ? `: ${p.declined.reason}` : ""));
       await saveProposal(p);
       const to = notifyAddress(settings);
-      if (waEnabled()) { const sl = p.sellerId ? await getUser(p.sellerId) : null; await sendWaMany(teamPhones(settings, sl), `Proposta nº ${p.number} (${p.client?.name || ""}) recusada pelo cliente${p.declined.reason ? `: "${p.declined.reason}"` : "."}`); }
       if (to) await sendEmail({ to, subject: `Proposta ${p.number} recusada · ${p.client?.name || ""}`, html: layout("Proposta recusada", `<p>${esc(p.client?.name)} informou que não é o momento.</p>${p.declined.reason ? `<p>Motivo: ${esc(p.declined.reason)}</p>` : ""}`) });
       return json(await proposalPublic(p, settings, contract));
     }
@@ -328,9 +338,10 @@ async function publicRoutes(req, context, url, [kind, id, action]) {
       if (name.length < 5 || !name.includes(" ")) return fail(T.fullName);
       if (!docOk(doc, br)) return fail(br ? T.doc : T.docX);
       if (!validEmail(email)) return fail(T.email);
-      if (!pngData(b.image)) return fail(T.draw);
+      const method = sigMethod(b.method);
+      if (method === "desenho" && !pngData(b.image)) return fail(T.draw);
       if (b.hash !== c.hash) return fail(T.changed, 409);
-      c.signatures.client = { name, doc, email, image: b.image, at: nowISO(), ip: clientIP(req, context), ua: clean(req.headers.get("user-agent"), 300) };
+      c.signatures.client = { name, doc, email, method, image: method === "desenho" ? b.image : null, at: nowISO(), ip: clientIP(req, context), ua: clean(req.headers.get("user-agent"), 300) };
       c.status = "assinado";
       c.signedAt = c.signatures.client.at;
       await saveContract(c);
@@ -346,11 +357,6 @@ async function publicRoutes(req, context, url, [kind, id, action]) {
         emailed = r.sent;
         const to = [notifyAddress(settings), c.seller?.email].filter(Boolean);
         if (to.length) await sendEmail({ to, subject: `Contrato ${c.number} assinado · ${c.client?.name}`, html: layout("Contrato assinado", `<p>${esc(name)} assinou o contrato nº ${esc(c.number)}.</p>`, { url: link, label: "Abrir contrato" }), attachments: att });
-      }
-      if (waEnabled()) {
-        const link = `${url.origin}/c/${c.id}`, pdfLink = `${url.origin}/api/public/contract/${c.id}/pdf?download=1`;
-        if (settings.waClient !== false) await sendWa(c.client?.phone, waText("signedClient", c.lang || "pt", firstName(name), c.number, pdfLink));
-        await sendWaMany(teamPhones(settings, c.seller), `✅ Contrato nº ${c.number} assinado por ${name} (${c.client?.name || ""}).\n${link}`);
       }
       return json({ ...contractPublic(c, settings), emailed });
     }
@@ -408,11 +414,6 @@ async function placeOrder(p, body, settings, req, context, opts = {}) {
     }[lang] || null;
     if (CF) await sendEmail({ to: client.email, replyTo: seller?.email || undefined, subject: CF[0], html: layout(CF[1], `<p>${CF[2]}</p><p><b>${CF[4]}</b></p><ul>${totals.lines.map((l) => `<li>${esc(l.name)}: ${esc(l.optionLabel)} · ${esc(l.kind === "mensal" ? mm0(l.total) + ({ pt: "/mês", es: "/mes", en: "/mo" }[lang] || "") : mm0(l.total))}</li>`).join("")}</ul>`, { url: `${origin0}/p/${p.id}#pedido`, label: CF[3] }) });
   }
-  if (!opts.silent && waEnabled()) {
-    const origin1 = new URL(req.url).origin, mmw = (v) => money(v, p.currency || "BRL", "pt");
-    if (settings.waClient !== false) await sendWa(client.phone, waText("orderClient", p.lang || "pt", firstName(client.representative || client.name), p.number, `${origin1}/p/${p.id}#pedido`));
-    await sendWaMany(teamPhones(settings, seller), `🛎️ ${again ? "Pedido atualizado" : "Novo pedido"} na proposta nº ${p.number}\n${client.name}${client.phone ? " · " + client.phone : ""}\n${totals.lines.map((l) => `• ${l.name}: ${l.optionLabel} (${l.kind === "mensal" ? mmw(l.total) + "/mês" : mmw(l.total)})`).join("\n")}\n\nGerar o contrato: ${origin1}/admin#/proposta/${p.id}`);
-  }
   const to = [notifyAddress(settings), seller?.email].filter(Boolean);
   if (to.length && !opts.silent) {
     const origin = new URL(req.url).origin;
@@ -427,6 +428,22 @@ async function placeOrder(p, body, settings, req, context, opts = {}) {
 
 /* ---------- rotas do painel ---------- */
 const slow = () => new Promise((r) => setTimeout(r, 700)); // atrasa respostas de senha errada (dificulta tentativas em massa)
+// Limite de tentativas (login, cadastro, nova senha, pedidos pelo link aberto): conta por IP e por e-mail.
+// Passou do limite dentro da janela, fica bloqueado até a janela acabar.
+const tKey = (k) => "throttle/" + sha256(String(k)).slice(0, 40);
+// max vale para todas as chaves; ou um número por chave (ex.: [30, 8] = 30 por IP e 8 por e-mail)
+async function tooMany(keys, max) {
+  const root = await rootDb(), now = Date.now();
+  for (const [i, k] of keys.entries()) { const lim = Array.isArray(max) ? max[i] : max; const t = await root.get(tKey(k)); if (t && t.until > now && t.n >= lim) return Math.ceil((t.until - now) / 60000); }
+  return 0;
+}
+async function hit(keys, windowMs) {
+  const root = await rootDb(), now = Date.now();
+  for (const k of keys) { const t = await root.get(tKey(k)); const fresh = !t || !(t.until > now); await root.set(tKey(k), { n: fresh ? 1 : t.n + 1, until: fresh ? now + windowMs : t.until }); }
+}
+async function clearHits(keys) { const root = await rootDb(); for (const k of keys) await root.del(tKey(k)); }
+const waitMsg = (min) => `Muitas tentativas seguidas. Por segurança, espere ${min} minuto${min > 1 ? "s" : ""} e tente de novo.`;
+const MIN15 = 15 * 60e3, HOUR = 60 * 60e3;
 const companyPublic = (c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, blocked: !!c.blocked, demo: !!c.demo, createdBy: c.createdBy || "cadastro", note: c.note || "", lastLoginAt: c.lastLoginAt || null, owner: { name: c.owner.name, email: c.owner.email } });
 
 async function adminEntry(req, context, url, parts) {
@@ -451,26 +468,33 @@ async function accountRoutes(req, url, kind, context) {
   const b = await req.json().catch(() => ({}));
   const email = clean(b.email, 160).toLowerCase();
   const pw = typeof b.password === "string" ? b.password : "";
+  const ip = "ip:" + (clientIP(req, context) || "?");
 
   if (kind === "login") {
+    // por IP: 30 erros em 15 minutos (vários usuários no mesmo escritório); por e-mail (ou senha do dono): 8
+    const keys = [ip + ":login", "login:" + (email || "dono")];
+    const wait = await tooMany(keys, [30, 8]);
+    if (wait) return fail(waitMsg(wait), 429);
+    const bad = async (msg) => { await hit(keys, MIN15); await slow(); return fail(msg, 401); };
     if (!email) {
       // dono do sistema: só a senha (ADMIN_PASSWORD)
-      if (!checkPassword(pw)) { await slow(); return fail("Senha incorreta.", 401); }
+      if (!checkPassword(pw)) return bad("Senha incorreta.");
+      await clearHits(keys.slice(1));
       return json({ token: issueToken({ role: "super" }), role: "super" });
     }
     if (email === DEMO_EMAIL) await ensureDemoAccount(url, context); // a conta modelo de teste nasce no primeiro acesso
     const l = await getLogin(email);
     const c = l && (await getCompany(l.cid));
-    if (!c) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
-    const seen = async () => { c.lastLoginAt = nowISO(); await saveCompany(c); };
+    if (!c) return bad("E-mail ou senha incorretos.");
+    const seen = async () => { c.lastLoginAt = nowISO(); await saveCompany(c); await clearHits(keys.slice(1)); };
     if (!l.uid) {
-      if (!verifyPassword(pw, c.owner)) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
+      if (!verifyPassword(pw, c.owner)) return bad("E-mail ou senha incorretos.");
       if (c.blocked) return fail("O acesso desta empresa está suspenso. Fale com o suporte do sistema.", 403);
       await seen();
       return json({ token: issueToken({ role: "admin", cid: c.id, pv: pwMark(c.owner) }), role: "admin", company: c.id });
     }
     const u = await withCompany(c.id, () => getUser(l.uid));
-    if (!u || u.active === false || !verifyPassword(pw, u)) { await slow(); return fail("E-mail ou senha incorretos.", 401); }
+    if (!u || u.active === false || !verifyPassword(pw, u)) return bad("E-mail ou senha incorretos.");
     if (c.blocked) return fail("O acesso desta empresa está suspenso. Fale com o administrador da sua empresa.", 403);
     await seen();
     return json({ token: issueToken({ role: "seller", cid: c.id, uid: u.id, pv: pwMark(u) }), role: "seller", company: c.id });
@@ -478,6 +502,7 @@ async function accountRoutes(req, url, kind, context) {
 
   if (kind === "signup") {
     if (b.website) return fail("Não foi possível criar a conta.", 400); // campo escondido: só robôs preenchem
+    { const w = await tooMany([ip + ":signup"], 10); if (w) return fail(waitMsg(w), 429); await hit([ip + ":signup"], HOUR); }
     const sys = await getSystem();
     if (!signupOpen(sys)) return fail("O cadastro de novas contas está fechado no momento.", 403);
     const name = clean(b.name, 120), companyName = clean(b.company, 120);
@@ -494,6 +519,7 @@ async function accountRoutes(req, url, kind, context) {
   if (kind === "forgot") {
     // resposta igual exista ou não a conta, para não revelar quais e-mails estão cadastrados
     if (!emailEnabled()) return json({ ok: true, emailEnabled: false });
+    { const k = [ip + ":forgot", "forgot:" + email], w = await tooMany(k, 5); if (w) return fail(waitMsg(w), 429); await hit(k, HOUR); }
     const l = validEmail(email) ? await getLogin(email) : null;
     const c = l && (await getCompany(l.cid));
     if (c) {
@@ -508,6 +534,7 @@ async function accountRoutes(req, url, kind, context) {
   }
 
   if (kind === "reset") {
+    { const w = await tooMany([ip + ":reset"], 10); if (w) return fail(waitMsg(w), 429); await hit([ip + ":reset"], MIN15); }
     const tok = clean(b.token, 80);
     const key = "resets/" + sha256(tok).slice(0, 40);
     const r = tok ? await (await rootDb()).get(key) : null;
@@ -545,7 +572,7 @@ const DEMO_PASSWORD = "teste1234";
 
 // cria uma empresa nova com o responsável, o índice de login e os dados iniciais
 async function createCompany({ name, companyName, email, password, by, sys, extra = {} }) {
-  const c = { id: token(9), name: companyName, createdAt: nowISO(), blocked: false, createdBy: by || "cadastro", owner: { name, email, ...hashPassword(password) }, ...extra };
+  const c = { id: token(9), name: companyName, createdAt: nowISO(), blocked: false, createdBy: by || "cadastro", owner: { name, email, ...hashPassword(password) }, billing: newBilling(billingConfig(sys)), ...extra };
   await saveCompany(c);
   await setLogin(email, { cid: c.id, uid: null });
   await withCompany(c.id, async () => (await db()).set("settings", { agency: { name: companyName, email, representative: name }, validityDays: sys.defaultValidityDays || 15 }));
@@ -603,9 +630,10 @@ async function superRoutes(req, url, [kind, id, action], context) {
   if ((kind === "bootstrap" || kind === "companies") && m === "GET" && !id) {
     const keys = await root.list("companies/");
     const all = (await Promise.all(keys.map((k) => root.get(k)))).filter(Boolean);
+    const bc = billingConfig(sys);
     const rows = await Promise.all(all.map(async (c) => {
       const [ps, cs, us] = await Promise.all([root.list(`e/${c.id}/proposals/`), root.list(`e/${c.id}/contracts/`), root.list(`e/${c.id}/users/`)]);
-      return { ...companyPublic(c), proposals: ps.length, contracts: cs.length, sellers: us.length, maxSellers: maxSellersOf(c, sys), maxSellersOwn: c.maxSellers != null ? c.maxSellers : null };
+      return { ...companyPublic(c), proposals: ps.length, contracts: cs.length, sellers: us.length, maxSellers: maxSellersOf(c, sys), maxSellersOwn: c.maxSellers != null ? c.maxSellers : null, sub: subscriptionOf(c, bc), billingHistory: billingHistory(c).slice(0, 12) };
     }));
     rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     const week = new Date(Date.now() - 7 * 864e5).toISOString();
@@ -613,8 +641,11 @@ async function superRoutes(req, url, [kind, id, action], context) {
       companies: rows.length, active: rows.filter((c) => !c.blocked).length, blocked: rows.filter((c) => c.blocked).length,
       new7: rows.filter((c) => c.createdAt >= week).length, active7: rows.filter((c) => c.lastLoginAt && c.lastLoginAt >= week).length,
       proposals: rows.reduce((a, c) => a + c.proposals, 0), contracts: rows.reduce((a, c) => a + c.contracts, 0),
+      trial: rows.filter((c) => c.sub.status === "teste").length, paying: rows.filter((c) => c.sub.status === "ativa").length, expired: rows.filter((c) => c.sub.status === "vencida").length, requests: rows.filter((c) => c.sub.requested).length,
+      // receita mensal recorrente estimada: mensal pelo preço cheio, anual dividido por 12
+      mrr: Math.round(rows.filter((c) => c.sub.status === "ativa").reduce((a, c) => a + (c.sub.plan === "anual" ? bc.annual / 12 : bc.monthly), 0) * 100) / 100,
     };
-    return json({ role: "super", companies: rows, stats, system: sys, signupOpen: signupOpen(sys), signupEnvClosed: env("SIGNUP_CLOSED") === "1", emailEnabled: emailEnabled(), waEnabled: waEnabled(), demoEmail: DEMO_EMAIL, demoPassword: DEMO_PASSWORD });
+    return json({ role: "super", companies: rows, stats, system: sys, signupOpen: signupOpen(sys), signupEnvClosed: env("SIGNUP_CLOSED") === "1", emailEnabled: emailEnabled(), demoEmail: DEMO_EMAIL, demoPassword: DEMO_PASSWORD, billing: bc, billingProvider: providerLabel(bc.provider) });
   }
 
   if (kind === "system" && m === "PUT") {
@@ -625,6 +656,7 @@ async function superRoutes(req, url, [kind, id, action], context) {
     if ("notice" in b) cur.notice = clean(b.notice, 400);
     if ("defaultMaxSellers" in b) cur.defaultMaxSellers = Math.max(0, Math.min(500, Math.round(num(b.defaultMaxSellers))));
     if ("defaultValidityDays" in b) cur.defaultValidityDays = Math.max(1, Math.min(365, Math.round(num(b.defaultValidityDays)) || 15));
+    if (b.billing && typeof b.billing === "object") cur.billing = cleanBillingConfig(b.billing, cur.billing || {});
     await root.set("system", cur);
     return json({ system: await getSystem() });
   }
@@ -687,6 +719,22 @@ async function superRoutes(req, url, [kind, id, action], context) {
     return json({ company: companyPublic(c), password: pw });
   }
   if (m === "POST" && action === "enter") return json({ token: issueToken({ role: "admin", cid: c.id, su: true }), company: c.id });
+  // cobrança da conta: registrar pagamento, cortesia, estender o teste, cancelar a renovação
+  if (m === "POST" && action === "billing") {
+    const b = await body();
+    const bc = billingConfig(sys);
+    ensureBilling(c, bc);
+    if (b.action === "pay") {
+      const plan = PLANS[b.plan] ? b.plan : (c.billing.requested && c.billing.requested.plan) || c.billing.plan || "mensal";
+      const amount = b.amount != null && String(b.amount).trim() !== "" ? num(b.amount) : planPrice(bc, plan);
+      applyPayment(c, { plan, amount, note: b.note, by: "dono", provider: "manual" });
+    } else if (b.action === "exempt") setExempt(c, !!b.on, "dono");
+    else if (b.action === "trial") extendTrial(c, b.days, "dono");
+    else if (b.action === "cancel") cancelRenewal(c, "dono");
+    else return fail("Ação inválida.");
+    await saveCompany(c);
+    return json({ company: companyPublic(c), sub: subscriptionOf(c, bc), billingHistory: billingHistory(c).slice(0, 12) });
+  }
   return fail("Método não permitido.", 405);
 }
 
@@ -701,6 +749,40 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     if (sess.pv !== pwMark(me)) return fail("A senha foi trocada. Entre de novo.", 401);
   }
   const settings = await getSettings();
+  const sys = await getSystem(), bc = billingConfig(sys);
+  if (ensureBilling(company, bc)) await saveCompany(company);
+  const sub = subscriptionOf(company, bc);
+
+  // plano e pagamento da conta (só o responsável pela empresa)
+  if (kind === "billing") {
+    if (!isAdm) return fail("Disponível para o administrador da empresa.", 403);
+    const view = () => json({ sub: subscriptionOf(company, bc), history: billingHistory(company), provider: providerLabel(bc.provider), plans: PLANS });
+    if (m === "GET" && !id) return view();
+    if (m === "POST" && id === "checkout") {
+      if (sess.su) return fail("Entre com o e-mail da empresa para escolher o plano.", 403);
+      if (company.demo) return fail("A conta modelo de teste não tem cobrança.", 403);
+      const b = await req.json().catch(() => ({}));
+      const plan = PLANS[b.plan] ? b.plan : "";
+      if (!plan) return fail("Escolha o plano mensal ou anual.");
+      const r = await provider(bc.provider).checkout({ company, plan, price: planPrice(bc, plan), origin: url.origin });
+      if (r && r.url) { company.billing.pendingCheckout = { plan, at: nowISO() }; await saveCompany(company); return json({ url: r.url }); }
+      requestPlan(company, plan, company.owner.name);
+      await saveCompany(company);
+      return json({ requested: true, sub: subscriptionOf(company, bc), history: billingHistory(company) });
+    }
+    if (m === "POST" && id === "cancel") {
+      if (sess.su) return fail("Entre com o e-mail da empresa para cancelar.", 403);
+      cancelRenewal(company, company.owner.name);
+      await saveCompany(company);
+      return view();
+    }
+    return fail("Método não permitido.", 405);
+  }
+  // com a cobrança ligada, conta com o teste ou o período pago vencido fica só para consulta
+  // (os links já enviados aos clientes continuam funcionando; o dono do sistema entra normalmente)
+  if (!sub.allowed && !sess.su && m !== "GET" && !["account", "me"].includes(kind)) {
+    return fail(isAdm ? "O período de teste ou o plano da sua conta venceu. Escolha um plano em Plano e pagamento para voltar a criar e enviar propostas. Os links já enviados continuam funcionando." : "O plano da sua empresa venceu. Fale com o administrador da conta para voltar a criar e enviar propostas.", 402);
+  }
 
   // conta do responsável pela empresa: nome e senha
   if (kind === "account") {
@@ -727,15 +809,24 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
 
   if (kind === "bootstrap" && m === "GET") {
     const [proposals, contracts, catalog, users, folders] = await Promise.all([listDocs("proposals/"), listDocs("contracts/"), getCatalog(), listDocs("users/"), listDocs("folders/")]);
-    const pub = isAdm ? settings : { agency: settings.agency, brand: settings.brand, whatsapp: settings.whatsapp, validityDays: settings.validityDays, sellersUseAgencySignature: settings.sellersUseAgencySignature, agencySignature: settings.agencySignature ? { name: settings.agencySignature.name } : null, openLink: false };
+    const pub = isAdm ? settings : { agency: settings.agency, brand: settings.brand, whatsapp: settings.whatsapp, validityDays: settings.validityDays, sellersUseAgencySignature: settings.sellersUseAgencySignature, agencySignature: settings.agencySignature ? { name: settings.agencySignature.name, method: sigMethod(settings.agencySignature.method) } : null, openLink: false };
     return json({
-      role: sess.role, me: me ? userPublic(me) : null, company: isAdm ? companyPublic(company) : { id: company.id, name: company.name }, su: !!sess.su, notice: (await getSystem()).notice || "",
-      settings: pub, catalog, fonts: fontList(), emailEnabled: emailEnabled(), waEnabled: waEnabled(), emailSender: isAdm ? emailSender() : "", exampleKey: isAdm ? previewKey("exemplo:" + company.id) : "", layouts: LAYOUTS, defaultTemplate: TEMPLATES.pt, templateVars: TEMPLATE_VARS, today: todayBR(),
+      role: sess.role, me: me ? userPublic(me) : null, company: isAdm ? companyPublic(company) : { id: company.id, name: company.name }, su: !!sess.su, notice: sys.notice || "",
+      sub: isAdm ? sub : { status: sub.status, allowed: sub.allowed },
+      settings: pub, catalog, fonts: fontList(), emailEnabled: emailEnabled(), exampleKey: isAdm ? previewKey("exemplo:" + company.id) : "", layouts: LAYOUTS, defaultTemplate: TEMPLATES.pt, templateVars: TEMPLATE_VARS, today: todayBR(),
       countries: COUNTRIES, currencies: CURRENCIES,
       users: isAdm ? users.map(userPublic) : [],
       folders: folders.filter((f) => isAdm || f.ownerId === me.id).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")).map((f) => ({ id: f.id, name: f.name, ownerId: f.ownerId || null, ownerName: f.ownerId ? (users.find((u) => u.id === f.ownerId) || {}).name || "" : "" })),
       proposals: proposals.filter((p) => !p.deleted && owns(p)).sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1)).map((p) => summary(p, contracts, users)),
     });
+  }
+
+  // resumo do mês: propostas, serviços, aceitas, recusadas e valores fechados (o consultor vê só as dele)
+  if (kind === "report" && m === "GET") {
+    const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(url.searchParams.get("month") || "") ? url.searchParams.get("month") : todayBR().slice(0, 7);
+    const [proposals, contracts, users] = await Promise.all([listDocs("proposals/"), listDocs("contracts/"), isAdm ? listDocs("users/") : Promise.resolve([])]);
+    const mine = proposals.filter((p) => !p.deleted && owns(p));
+    return json(monthReport(mine, contracts, users, month, isAdm));
   }
 
   if (kind === "me") {
@@ -949,21 +1040,6 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
       const zip = zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, [v instanceof Uint8Array ? v : new Uint8Array(v), { level: 6 }]])));
       return new Response(zip, { headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="${base}.zip"`, "cache-control": "no-store" } });
     }
-    // envia o link da proposta no WhatsApp do cliente, pelo número conectado à Z-API
-    if (m === "POST" && action === "whatsapp") {
-      if (!waEnabled()) return fail("O WhatsApp automático não está ativo.", 409);
-      const b = await req.json().catch(() => ({}));
-      const phone = clean(b.phone || p.client.phone, 40);
-      if (onlyDigits(phone).length < 10) return fail("Informe o WhatsApp do cliente com DDD.");
-      const r = await sendWa(phone, waText("proposalClient", p.lang || "pt", firstName(p.client.contact), p.client.name, `${url.origin}/p/${p.id}`));
-      if (!r.sent) return fail(r.error ? `Não foi possível enviar: ${r.error}` : "Não foi possível enviar pelo WhatsApp.", 502);
-      if (!p.client.phone) p.client.phone = phone;
-      if (!p.sentAt) p.sentAt = nowISO();
-      if (p.status === "rascunho") p.status = "enviada";
-      log(p, "enviada", `Proposta enviada no WhatsApp automático${me ? " (" + me.name + ")" : ""}`);
-      await saveProposal(p);
-      return out();
-    }
     // envia o link da proposta direto para o e-mail do cliente
     if (m === "POST" && action === "email") {
       if (!emailEnabled()) return fail("Os e-mails automáticos não estão ativos.", 409);
@@ -1052,14 +1128,14 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
       if (c.status !== "rascunho") return fail("O contrato já foi enviado.", 409);
       if (!c.seller || c.seller.id !== me.id) return fail("Você não é o consultor desta proposta.", 403);
       const b = await req.json().catch(() => ({}));
-      const image = b.useSaved ? me.signature : b.image;
-      if (!pngData(image)) return fail("Desenhe a sua assinatura.");
+      const method = b.useSaved ? "desenho" : sigMethod(b.method);
+      const image = method === "dados" ? null : b.useSaved ? me.signature : b.image;
+      if (method === "desenho" && !pngData(image)) return fail("Desenhe a sua assinatura.");
       if (!validDoc(me.doc)) return fail("Cadastre o seu CPF em Meu perfil antes de assinar.");
-      c.signatures = { ...(c.signatures || {}), intermediary: { name: me.name, doc: me.doc, email: me.email, image, at: nowISO(), ip: clientIP(req, context), ua: clean(req.headers.get("user-agent"), 300) } };
-      if (b.saveSignature) { me.signature = image; await saveUser(me); }
+      c.signatures = { ...(c.signatures || {}), intermediary: { name: me.name, doc: me.doc, email: me.email, method, image, at: nowISO(), ip: clientIP(req, context), ua: clean(req.headers.get("user-agent"), 300) } };
+      if (b.saveSignature && image) { me.signature = image; await saveUser(me); }
       await saveContract(c);
       if (p) { log(p, "contrato", `${me.name} assinou o contrato como intermediador e testemunha`); await saveProposal(p); }
-      if (waEnabled() && settings.waAgency !== false) await sendWa(settings.whatsapp, `✍️ ${me.name} assinou como intermediador o contrato nº ${c.number} (${c.client?.name || ""}).${settings.sellersUseAgencySignature ? "" : " Falta você liberar para o cliente."}\n${url.origin}/admin#/proposta/${c.proposalId}`);
       return out();
     }
     if (m === "POST" && action === "send") {
@@ -1071,17 +1147,20 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
       let agencySig;
       if (isAdm) {
         const sig = b.signature || {}, saved = settings.agencySignature || {};
-        const name = clean(sig.name || saved.name, 160), doc = onlyDigits(sig.doc || saved.doc);
-        const image = !sig.image || sig.useSaved ? saved.image : sig.image;
+        const useSaved = !!sig.useSaved;
+        if (useSaved && !sigUsable(saved)) return fail("A assinatura padrão da empresa não está salva. Assine neste contrato ou salve a assinatura em Dados da empresa.");
+        const method = useSaved ? sigMethod(saved.method) : sigMethod(sig.method);
+        const name = clean(useSaved ? saved.name : sig.name || saved.name, 160), doc = onlyDigits(useSaved ? saved.doc : sig.doc || saved.doc);
+        const image = method === "dados" ? null : useSaved || !sig.image ? saved.image : sig.image;
         if (name.length < 5) return fail("Informe o nome de quem assina pela empresa.");
         if (!validDoc(doc)) return fail("CPF ou CNPJ de quem assina pela empresa é inválido.");
-        if (!pngData(image)) return fail("Desenhe a assinatura da empresa.");
-        agencySig = { name, doc, image };
-        if (b.saveSignature) { const cur = (await s.get("settings")) || {}; cur.agencySignature = { name, doc, image, custom: true }; await s.set("settings", cur); }
+        if (method === "desenho" && !pngData(image)) return fail("Desenhe a assinatura da empresa.");
+        agencySig = { name, doc, method, image };
+        if (b.saveSignature && !useSaved) { const cur = (await s.get("settings")) || {}; cur.agencySignature = { name, doc, method, image, custom: true }; await s.set("settings", cur); }
       } else {
         const sg = settings.agencySignature;
-        if (!settings.sellersUseAgencySignature || !sg || !pngData(sg.image)) return fail("A assinatura padrão da empresa não está liberada para consultores. Peça ao administrador para liberar o contrato.", 403);
-        agencySig = { name: sg.name, doc: sg.doc, image: sg.image, appliedBy: `${me.name} (consultor)` };
+        if (!settings.sellersUseAgencySignature || !sigUsable(sg)) return fail("A assinatura padrão da empresa não está liberada para consultores. Peça ao administrador para liberar o contrato.", 403);
+        agencySig = { name: sg.name, doc: sg.doc, method: sigMethod(sg.method), image: sg.method === "dados" ? null : sg.image, appliedBy: `${me.name} (consultor)` };
       }
       c.hash = sha256(c.text);
       c.sentAt = nowISO();
@@ -1095,13 +1174,7 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
         const r = await sendEmail({ to: c.client.email, subject: E[0], html: layout(E[1], `<p>${E[2]}</p>`, { url: `${url.origin}/c/${c.id}`, label: E[3] }) });
         emailed = r.sent;
       }
-      let whatsapped = false;
-      if (waEnabled() && b.waClient !== false && settings.waClient !== false && c.client?.phone) {
-        const r = await sendWa(c.client.phone, waText("contractClient", c.lang || "pt", firstName(c.client.representative || c.client.name), c.number, `${url.origin}/c/${c.id}`));
-        whatsapped = r.sent;
-        if (p && r.sent) { log(p, "contrato", "Link do contrato enviado no WhatsApp do cliente"); await saveProposal(p); }
-      }
-      return out({ emailed, whatsapped });
+      return out({ emailed });
     }
     if (m === "POST" && action === "cancel") {
       if (c.status === "assinado") return fail("Contratos assinados não podem ser cancelados por aqui.", 409);
@@ -1156,8 +1229,8 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
           const at = nowISO();
           if (c.seller) c.signatures.intermediary = { name: seller.name, doc: seller.doc, email: seller.email, image: demo_signature, at, ip: "teste", ua: "modelo de teste" };
           const sg = settings.agencySignature;
-          if (!sg || !sg.image) throw new Error("salve a assinatura padrão em Dados da empresa antes de criar o modelo de teste");
-          c.signatures.agency = { name: sg.name, doc: sg.doc, image: sg.image, at, ip: "teste", ua: "modelo de teste", ...(c.seller ? { appliedBy: seller.name + " (consultor)" } : {}) };
+          if (!sigUsable(sg)) throw new Error("salve a assinatura padrão em Dados da empresa antes de criar o modelo de teste");
+          c.signatures.agency = { name: sg.name, doc: sg.doc, method: sigMethod(sg.method), image: sg.method === "dados" ? null : sg.image, at, ip: "teste", ua: "modelo de teste", ...(c.seller ? { appliedBy: seller.name + " (consultor)" } : {}) };
           c.hash = sha256(c.text); c.sentAt = at; c.status = "aguardando"; p.status = "contrato";
         }
         if (o.stage >= 4) { c.signatures.client = { name: o.client.representative || o.client.name, doc: o.signDoc, email: o.client.email, image: demo_signature, at: nowISO(), ip: "teste", ua: "modelo de teste" }; c.status = "assinado"; c.signedAt = c.signatures.client.at; p.status = "assinada"; }
@@ -1175,30 +1248,6 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     out.push(await mk({ name: "4. Teste · Paraguai aguardando assinatura", services: [0], seller: true, order: [0], client: pyClient, country: "PY", lang: "es", currency: "USD", rate: 5.4, stage: 3 }));
     out.push(await mk({ name: "5. Teste · contrato assinado", services: [1], seller: false, order: [1], client: brClient("Loja Teste Ltda"), stage: 4, signDoc: "52998224725" }));
     return json({ seller: { email: seller.email, password: pw }, folderId: folder.id, proposals: out.map((p) => ({ id: p.id, number: p.number, name: p.client.name })) });
-  }
-
-  // mensagem de teste no WhatsApp
-  if (kind === "wa-test" && m === "POST") {
-    const deny = adminOnly(); if (deny) return deny;
-    if (!waEnabled()) return fail("O WhatsApp automático não está ativo: faltam ZAPI_INSTANCE, ZAPI_TOKEN e ZAPI_CLIENT_TOKEN no Netlify (ou um novo deploy).", 409);
-    const b = await req.json().catch(() => ({}));
-    const phone = clean(b.phone, 40) || settings.whatsapp;
-    const r = await sendWa(phone, `✅ Teste do sistema de propostas de ${brand().name}: o WhatsApp automático está funcionando.`);
-    if (!r.sent) return fail(r.reason === "number" ? "Número inválido. Use DDD e número, ex.: 11 99999-9999." : `Falhou: ${r.error || "sem resposta da Z-API"}`, 502);
-    return json({ ok: true });
-  }
-  if (kind === "__wa" && process.env.WA_TEST === "1") return json({ sent: waLog });
-
-  // e-mail de teste, para conferir a configuração do Gmail
-  if (kind === "email-test" && m === "POST") {
-    const deny = adminOnly(); if (deny) return deny;
-    if (!emailEnabled()) return fail("Os e-mails automáticos não estão ativos: faltam GMAIL_USER e GMAIL_APP_PASSWORD no Netlify (ou um novo deploy).", 409);
-    const b = await req.json().catch(() => ({}));
-    const to = clean(b.to, 160) || notifyAddress(settings);
-    if (!validEmail(to)) return fail("Informe um e-mail válido.");
-    const r = await sendEmail({ to, subject: `Teste de e-mail · Sistema de propostas de ${brand().name}`, html: layout("E-mail funcionando", `<p>Se você recebeu esta mensagem, o sistema de propostas já consegue enviar e-mails para os clientes.</p>`) });
-    if (!r.sent) return fail(r.error ? `Falhou: ${r.error}` : "Falhou ao enviar.", 502);
-    return json({ ok: true, to });
   }
 
   // imagens da marca: logo-escuro, logo-claro ou portfolio (nova imagem da galeria). Chegam já reduzidas pelo painel.
@@ -1244,7 +1293,7 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     const cur = (await s.get("settings")) || {};
     if (b.agency) cur.agency = Object.fromEntries(Object.keys(DEFAULT_SETTINGS.agency).map((k) => [k, clean(b.agency[k], 240)]));
     if (b.brand && typeof b.brand === "object") {
-      // cada tela envia só o que edita (Empresa: remetente; Página da proposta: modelo, cores, fontes e textos)
+      // Página da proposta envia modelo, cores, fontes, ajustes e textos
       const x = b.brand, old = cur.brand || {}, nb = { ...old };
       if (x.colors) { nb.colors = {}; for (const k of Object.keys(BRAND_DEFAULTS.colors)) nb.colors[k] = okColor(x.colors[k]) ? x.colors[k].toLowerCase() : (old.colors && old.colors[k]) || BRAND_DEFAULTS.colors[k]; }
       if ("tagline" in x) nb.tagline = clean(x.tagline, 160);
@@ -1254,7 +1303,6 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
       if ("principles" in x) nb.principles = (Array.isArray(x.principles) ? x.principles : []).map((p) => clean(p, 120)).filter(Boolean).slice(0, 6);
       if ("fontTitle" in x) nb.fontTitle = clean(x.fontTitle, 30);
       if ("fontText" in x) nb.fontText = clean(x.fontText, 30);
-      if ("emailFromName" in x) nb.emailFromName = clean(x.emailFromName, 80);
       if ("layout" in x) nb.layout = LAYOUTS[x.layout] ? x.layout : "neutro";
       if ("style" in x) nb.style = cleanStyle(x.style, old.style);
       cur.brand = nb;
@@ -1265,14 +1313,17 @@ async function adminRoutes(req, context, url, [kind, id, action], sess, company)
     if ("validityDays" in b) cur.validityDays = Math.max(1, Math.min(120, Math.round(num(b.validityDays)) || 15));
     if ("openLink" in b) cur.openLink = !!b.openLink;
     if ("sellersUseAgencySignature" in b) cur.sellersUseAgencySignature = !!b.sellersUseAgencySignature;
-    if ("waClient" in b) cur.waClient = !!b.waClient;
-    if ("waAgency" in b) cur.waAgency = !!b.waAgency;
     if ("intro" in b) cur.intro = clean(b.intro, 1500);
     if ("pageTexts" in b) cur.pageTexts = cleanPageTexts(b.pageTexts);
     if ("nextSteps" in b && Array.isArray(b.nextSteps)) cur.nextSteps = b.nextSteps.slice(0, 6).map((x) => ({ title: clean(x.title, 60), text: clean(x.text, 400) })).filter((x) => x.title);
     // contrato da empresa (em português): null volta ao modelo genérico do sistema
     if ("contractText" in b) cur.contractText = b.contractText && String(b.contractText).trim() ? String(b.contractText).slice(0, 60000) : null;
-    if ("agencySignature" in b) cur.agencySignature = b.agencySignature && pngData(b.agencySignature.image) ? { name: clean(b.agencySignature.name, 160), doc: onlyDigits(b.agencySignature.doc), image: b.agencySignature.image, custom: true } : null;
+    if ("agencySignature" in b) {
+      const x = b.agencySignature, method = x ? sigMethod(x.method) : "desenho";
+      const sg = x ? { name: clean(x.name, 160), doc: onlyDigits(x.doc), method, image: method === "dados" ? null : x.image, custom: true } : null;
+      if (sg && !sigUsable(sg)) return fail(method === "dados" ? "Informe o nome completo e um CPF ou CNPJ válido para a assinatura." : "Desenhe a assinatura.");
+      cur.agencySignature = sg;
+    }
     await s.set("settings", cur);
     // nome da empresa na lista do dono do sistema acompanha Dados da empresa
     if (cur.agency && cur.agency.name && cur.agency.name !== company.name) { company.name = cur.agency.name; await saveCompany(company); }
@@ -1334,3 +1385,78 @@ async function applyProposalEdits(p, b, settings, isAdm) {
   return null;
 }
 
+// aviso de pagamento do provedor: confere a origem (no provedor) e registra os pagamentos nas contas
+async function billingWebhook(req, name) {
+  const p = provider(name);
+  if (!name || p === provider("manual") || !p.configured()) return fail("Não encontrado.", 404);
+  const events = await p.webhook(req).catch((e) => { console.error("webhook", name, e); return null; });
+  if (!events) return fail("Não autorizado.", 401);
+  for (const ev of events) {
+    const c = await getCompany(ev.companyId);
+    if (!c) continue;
+    applyPayment(c, { plan: ev.plan, amount: ev.amount, paymentId: ev.paymentId, provider: name, by: providerLabel(name) });
+    await saveCompany(c);
+  }
+  return json({ ok: true });
+}
+
+/* ---------- resumo do mês ---------- */
+// data (AAAA-MM-DD) de um instante no fuso de Brasília
+const brDay = (iso) => (iso ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso)) : "");
+const prevMonth = (ym) => { const [y, mo] = ym.split("-").map(Number); return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, "0")}`; };
+
+function monthReport(proposals, contracts, users, month, isAdm) {
+  const cById = Object.fromEntries(contracts.map((c) => [c.id, c]));
+  const signedAt = (p) => { const c = p.contractId && cById[p.contractId]; return c && c.status === "assinado" ? c.signedAt || c.signatures?.client?.at : null; };
+  const inM = (iso, ym) => !!iso && brDay(iso).slice(0, 7) === ym;
+  const cur = (p) => p.currency || "BRL";
+  const add = (o, k, v) => { if (v) o[k] = Math.round(((o[k] || 0) + v) * 100) / 100; };
+  // menor e maior valor oferecido de cada serviço (para estimar o que foi proposto e o que foi recusado)
+  const svcRange = (sv) => { const t = (sv.payment || []).map((o) => Number(o.total) || 0).filter(Boolean); return t.length ? [Math.min(...t), Math.max(...t)] : [0, 0]; };
+  const term = (l) => (l.kind === "mensal" ? l.total * Math.max(1, l.minMonths || 1) : l.total);
+
+  const calc = (ym) => {
+    const R = {
+      month: ym, counts: { created: 0, sent: 0, viewed: 0, ordered: 0, signed: 0, declined: 0, expired: 0, open: 0 },
+      money: { signedOnce: {}, signedMonthly: {}, signedUpfront: {}, signedTerm: {}, pendingOnce: {}, pendingMonthly: {}, offeredMin: {}, declinedMin: {} },
+      services: {}, sellers: {}, rows: [],
+    };
+    const svc = (sv) => (R.services[sv.id || sv.name] ||= { name: sv.name, kind: sv.kind, offered: 0, chosen: 0, signed: 0, once: {}, monthly: {} });
+    for (const p of proposals) {
+      const sAt = signedAt(p), created = inM(p.createdAt, ym), ordered = !!p.order && inM(p.order.submittedAt, ym), signed = !!sAt && inM(sAt, ym), declined = !!p.declined && inM(p.declined.at, ym);
+      const expired = !!p.validUntil && p.validUntil.slice(0, 7) === ym && isExpired(p);
+      if (!(created || ordered || signed || declined || expired || inM(p.sentAt, ym))) continue;
+      const k = cur(p), C = R.counts;
+      if (created) { C.created++; for (const sv of p.services || []) { svc(sv).offered++; add(R.money.offeredMin, k, svcRange(sv)[0]); } if (["rascunho", "enviada", "visualizada"].includes(p.status) && !isExpired(p)) C.open++; if (p.firstViewAt) C.viewed++; }
+      if (inM(p.sentAt, ym)) C.sent++;
+      if (expired) C.expired++;
+      if (declined) { C.declined++; for (const sv of p.services || []) add(R.money.declinedMin, k, svcRange(sv)[0]); }
+      const lines = (p.order && p.order.totals && p.order.totals.lines) || [];
+      if (ordered) { C.ordered++; for (const l of lines) svc({ id: l.serviceId, name: l.name, kind: l.kind }).chosen++; if (!sAt) { add(R.money.pendingOnce, k, p.order.totals.once); add(R.money.pendingMonthly, k, p.order.totals.monthly); } }
+      if (signed) {
+        C.signed++;
+        const t = p.order.totals;
+        add(R.money.signedOnce, k, t.once); add(R.money.signedMonthly, k, t.monthly); add(R.money.signedUpfront, k, t.upfront);
+        add(R.money.signedTerm, k, lines.reduce((a, l) => a + term(l), 0));
+        for (const l of lines) { const x = svc({ id: l.serviceId, name: l.name, kind: l.kind }); x.signed++; add(l.kind === "mensal" ? x.monthly : x.once, k, l.total); }
+      }
+      if (isAdm) {
+        const u = users.find((x) => x.id === p.sellerId), key = u ? u.id : "_empresa";
+        const sl = (R.sellers[key] ||= { name: u ? u.name : "Empresa (sem consultor)", created: 0, ordered: 0, signed: 0, declined: 0, once: {}, monthly: {} });
+        if (created) sl.created++; if (ordered) sl.ordered++; if (declined) sl.declined++;
+        if (signed) { sl.signed++; add(sl.once, k, p.order.totals.once); add(sl.monthly, k, p.order.totals.monthly); }
+      }
+      const ev = signed ? "fechada" : declined ? "recusada" : ordered ? "aceita" : expired ? "vencida" : created ? "criada" : "enviada";
+      R.rows.push({ id: p.id, number: p.number, client: p.client?.name || p.order?.client?.name || "", status: p.status, event: ev, currency: k, createdAt: p.createdAt, signedAt: signed ? sAt : null, declinedAt: declined ? p.declined.at : null, reason: declined ? p.declined.reason || "" : "", services: (lines.length ? lines.map((l) => l.name) : (p.services || []).map((x) => x.name)), once: p.order ? p.order.totals.once : 0, monthly: p.order ? p.order.totals.monthly : 0, seller: isAdm ? (users.find((x) => x.id === p.sellerId) || {}).name || "" : "" });
+    }
+    R.services = Object.values(R.services).sort((a, b) => b.signed - a.signed || b.chosen - a.chosen || b.offered - a.offered);
+    R.sellers = Object.values(R.sellers).sort((a, b) => b.signed - a.signed || b.created - a.created);
+    R.rows.sort((a, b) => String(b.signedAt || b.declinedAt || b.createdAt).localeCompare(String(a.signedAt || a.declinedAt || a.createdAt)));
+    const decided = R.counts.signed + R.counts.declined;
+    R.rates = { acceptance: R.counts.created ? Math.round((proposals.filter((p) => inM(p.createdAt, ym) && p.order).length / R.counts.created) * 100) : null, closing: decided ? Math.round((R.counts.signed / decided) * 100) : null };
+    return R;
+  };
+  const first = proposals.map((p) => brDay(p.createdAt).slice(0, 7)).filter(Boolean).sort()[0] || todayBR().slice(0, 7);
+  const prev = calc(prevMonth(month));
+  return { ...calc(month), previous: { month: prev.month, counts: prev.counts, money: { signedOnce: prev.money.signedOnce, signedMonthly: prev.money.signedMonthly } }, firstMonth: first, currentMonth: todayBR().slice(0, 7), seller: !isAdm };
+}

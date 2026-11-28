@@ -107,6 +107,16 @@ async def draw(page, sel):
     await page.mouse.up()
 
 
+async def until(page, read, ok, timeout=10000):
+    """Espera uma condição lendo a página (no lugar de wait_for_function, que a política de segurança CSP bloqueia)."""
+    t = time.time()
+    while time.time() - t < timeout / 1000:
+        if ok(await read()):
+            return
+        await page.wait_for_timeout(150)
+    raise AssertionError("tempo esgotado esperando a página")
+
+
 async def go(page, hash_):
     """Abre uma tela do painel; força a troca mesmo se já estiver no mesmo endereço."""
     if "/admin" in page.url:
@@ -191,7 +201,7 @@ async def client_order_br(page, pid, doc="11.222.333/0001-81"):
     await page.fill("#f-phone", "11999998888")
     await page.locator("#f-cep").scroll_into_view_if_needed()
     await page.type("#f-cep", "01310100")
-    await page.wait_for_function("document.querySelector('#f-street').value.length > 2", timeout=10000)
+    await until(page, lambda: page.input_value("#f-street"), lambda v: len(v) > 2)
     assert re.search(r"São Paulo", await page.input_value("#f-city")), "CEP não preencheu a cidade"
     await page.fill("#f-number", "1000")
     await page.fill("#f-city", "")
@@ -325,7 +335,7 @@ async def main():
             await A.click('[data-cm="own"]'); await must(A, ".ctr-up")
             docx = OUT / "contrato-proprio.docx"
             make_docx(docx, [("Heading1", "Contrato de Serviços do Teste"), ("", "CLÁUSULA PRIMEIRA. O contratado executará os serviços com zelo."), ("", "CLÁUSULA SEGUNDA. As partes elegem o foro da cidade do contratado.")])
-            await A.set_input_files("#ctrFile", str(docx)); await A.wait_for_function("document.querySelector('#tpl').value.includes('CLÁUSULA SEGUNDA')")
+            await A.set_input_files("#ctrFile", str(docx)); await until(A, lambda: A.input_value("#tpl"), lambda v: "CLÁUSULA SEGUNDA" in v)
             assert (await A.input_value("#tpl")).startswith("## Contrato de Serviços do Teste"), await A.input_value("#tpl")
             await A.click("#ctrPrev"); await must(A, "#ctrDoc:not([hidden]) p")
             assert "Anexo: dados do pedido" in await A.text_content("#ctrDoc"), "contrato próprio sem o anexo do pedido"
@@ -491,6 +501,7 @@ async def main():
             await A.select_option("#bulkFolder", fid); await A.wait_for_timeout(900)
             await A.click(f'[data-view="{fid}"]'); await must(A, f'tr[data-id="{st["p_py"]}"]')
             await A.click('[data-view="all"]'); await must(A, f'tr[data-id="{st["p_admin_seller"]}"]')
+            await A.wait_for_selector(".toast", state="hidden")  # o aviso flutuante não pode cobrir a linha arrastada
             await A.drag_and_drop(f'tr[data-id="{st["p_admin_seller"]}"]', f'.sb-item[data-drop="{fid}"]'); await A.wait_for_timeout(900)
             await A.click(f'[data-view="{fid}"]'); await must(A, f'tr[data-id="{st["p_admin_seller"]}"]')
             await shot(A, "23-pastas")
@@ -637,17 +648,114 @@ async def main():
             s_, _ = api(f"public/contract/{st['c_admin']}")
             assert s_ == 404, "contrato continua acessível"
 
-        async with Step("31 WhatsApp automático em cada etapa (modo de teste)"):
-            s_, d_ = api("admin/__wa", tok=TOKEN["admin"])
-            if s_ == 200:
-                msgs = d_["sent"]
-                txt = "\n".join(m["message"] for m in msgs)
-                for frag in ("Recebemos o seu pedido", "Recibimos tu pedido", "Falta só a sua assinatura", "foi assinado por todas as partes", "Novo pedido na proposta", "assinou como intermediador", "Contrato nº"):
-                    assert frag in txt, f"faltou mensagem: {frag}"
-                assert all(m["to"].isdigit() and len(m["to"]) >= 12 for m in msgs), "número em formato inválido"
-                print(f"  {len(msgs)} mensagens de WhatsApp registradas")
+        async with Step("31 Configurações sem e-mails e WhatsApp automático; Empresa sem remetente"):
+            await go(A, "#/config"); await must(A, "#cfgSave")
+            body = await A.text_content("main")
+            assert "WhatsApp automático" not in body and "E-mails automáticos" not in body, "ainda mostra e-mails ou WhatsApp automático"
+            await go(A, "#/empresa"); await must(A, "#bizSave")
+            body = await A.text_content("main")
+            assert not await A.query_selector("#bFrom") and "Remetente" not in body, "ainda mostra o remetente dos e-mails"
+            assert not await A.query_selector("#pfAdd"), "a galeria ainda está em Empresa"
+            s_, _ = api("admin/wa-test", {}, TOKEN["admin"]); assert s_ == 404, "rota do WhatsApp automático continua ativa"
+
+        async with Step("31a Galeria de trabalhos em Página da proposta (sem perder textos não salvos)"):
+            await go(A, "#/pagina"); await must(A, "#pageSave"); assert await A.query_selector("#pfAdd"), "a galeria não está em Página da proposta"
+            await A.fill('[data-tx="hero_label"]', "Texto ainda não salvo")
+            png = OUT / "galeria-teste.png"; png.write_bytes(make_png(400, 300, (200, 120, 60, 255)))
+            await A.set_input_files("#pfAdd", str(png)); await must(A, "#pfBox .pf-list li")
+            assert await A.input_value('[data-tx="hero_label"]') == "Texto ainda não salvo", "enviar foto apagou o texto digitado"
+            await A.fill('[data-tx="hero_label"]', "")
+            await A.fill("#pfBox [data-pf-name]", "Obra exemplo"); await A.click("#pageSave"); await A.wait_for_timeout(900)
+            s_, b_ = api("admin/bootstrap", tok=TOKEN["admin"])
+            assert [x["name"] for x in b_["settings"]["brand"]["portfolio"]] == ["Obra exemplo"], b_["settings"]["brand"]["portfolio"]
+            await shot(A, "31a-galeria-na-pagina")
+
+        async with Step("31b Cliente assina só com nome e CPF/CNPJ (sem desenho)"):
+            pid = await new_proposal(A, f"{TAG} Assinatura por dados", ["projeto-avulso"])
+            await client_order_br(C, pid)
+            await go(A, f"#/proposta/{pid}"); await must(A, "#genBtn"); await A.click("#genBtn"); await must(A, "#sendC")
+            await A.click("#sendC"); await must(A, ".st.contrato")
+            cid = await contract_id(A)
+            await C.goto(f"{BASE}/c/{cid}"); await must(C, "#signForm")
+            await C.fill("#s-doc", "529.982.247-25")
+            await C.click('.sig-mode label:has-text("Só nome")'); await C.wait_for_timeout(150)
+            assert await C.is_hidden("#padBox"), "o quadro de desenho continua visível"
+            await C.check("#signForm input[name=accept]"); await C.click("#signBtn"); await must(C, "#signInner .done-box")
+            assert await C.locator(".sigs .typed").count() >= 1, "assinatura por nome não aparece na página"
+            s_, d_ = api(f"public/contract/{cid}")
+            assert d_["signatures"]["client"]["method"] == "dados" and not d_["signatures"]["client"]["image"], d_["signatures"]["client"]
+            s_, pdf = api(f"public/contract/{cid}/pdf"); assert s_ == 200 and pdf[:4] == b"%PDF", "PDF não gerado"
+            (OUT / "31b-assinatura-por-dados.pdf").write_bytes(pdf)
+            await shot(C, "31b-assinado-por-dados", full=False)
+            st["p_dados"] = pid
+
+        async with Step("31c Resumo do mês: contagens, valores e planilha"):
+            await go(A, "#/resumo"); await must(A, ".rep-head")
+            s_, r_ = api("admin/report", tok=TOKEN["admin"])
+            assert s_ == 200 and r_["counts"]["signed"] >= 1 and r_["counts"]["created"] >= 1, r_["counts"]
+            assert r_["money"]["signedOnce"].get("BRL", 0) > 0 or r_["money"]["signedMonthly"].get("BRL", 0) > 0, r_["money"]
+            assert any(x["event"] == "fechada" for x in r_["rows"]) and r_["services"], "faltam propostas ou serviços no resumo"
+            async with A.expect_download() as dl:
+                await A.click("#repCsv")
+            csv = Path(await (await dl.value).path()).read_text(encoding="utf-8-sig")
+            assert csv.startswith("Número;Cliente;Serviços") and "Fechada" in csv, csv[:200]
+            await shot(A, "31c-resumo-do-mes")
+            s_, rv = api("admin/report?month=2020-01", tok=TOKEN["admin"]); assert s_ == 200 and rv["counts"]["created"] == 0
+
+        async with Step("31d Plano e pagamento: teste grátis, pedido de plano e pagamento pelo dono"):
+            s_, b_ = api("admin/billing", tok=TOKEN["admin"])
+            assert s_ == 200 and b_["sub"]["status"] == "teste" and b_["sub"]["daysLeft"] == 7 and b_["sub"]["prices"] == {"mensal": 19.9, "anual": 199}, b_
+            await go(A, "#/plano"); await must(A, '[data-plan="anual"]')
+            assert "19,90" in await A.text_content("main"), "preço mensal não aparece"
+            await A.click('[data-plan="anual"]'); await must(A, ".modal #mdYes"); await A.click("#mdYes")
+            await A.wait_for_timeout(800)
+            s_, b_ = api("admin/billing", tok=TOKEN["admin"]); assert b_["sub"]["requested"]["plan"] == "anual", b_["sub"]
+            await shot(A, "31d-plano")
+            s_, sup = api("admin/login", {"password": ADMIN_PW}); stok = sup["token"]
+            s_, d_ = api(f"admin/companies/{COMPANY['id']}/billing", {"action": "pay", "plan": "anual", "note": "teste"}, stok)
+            assert s_ == 200 and d_["sub"]["status"] == "ativa" and d_["sub"]["plan"] == "anual" and d_["sub"]["daysLeft"] >= 365, d_
+            s_, d_ = api("admin/bootstrap", tok=stok)
+            assert d_["stats"]["paying"] >= 1 and d_["billing"]["monthly"] == 19.9, d_["stats"]
+
+        async with Step("31e Conta vencida com cobrança ligada fica só para consulta"):
+            if not ("localhost" in BASE or "127.0.0.1" in BASE):
+                print("  só no servidor local")
             else:
-                print("  WhatsApp de teste desligado (rode o servidor com WA_TEST=1)")
+                s_, sup = api("admin/login", {"password": ADMIN_PW}); stok = sup["token"]
+                s_, nc = api("admin/companies", {"name": "Pessoa Vencida", "company": f"{TAG} Vencida {STAMP[-5:]}", "email": f"e2e.vencida.{STAMP}@exemplo.com"}, stok)
+                f = Path(__file__).parent.parent / "dev" / ".data" / "companies" / (nc["company"]["id"] + ".json")
+                cj = json.loads(f.read_text()); cj["billing"]["trialEndsAt"] = "2020-01-01"; f.write_text(json.dumps(cj))
+                api("admin/system", {"billing": {"enforce": True}}, stok, "PUT")
+                try:
+                    s_, lg = api("admin/login", {"email": nc["company"]["owner"]["email"], "password": nc["password"]})
+                    s_, b_ = api("admin/bootstrap", tok=lg["token"]); assert s_ == 200 and b_["sub"]["status"] == "vencida" and not b_["sub"]["allowed"], b_.get("sub")
+                    s_, e_ = api("admin/settings", {"validityDays": 10}, lg["token"], "PUT"); assert s_ == 402, (s_, e_)
+                    s_, _ = api("admin/billing/checkout", {"plan": "mensal"}, lg["token"]); assert s_ == 200, "não deixou escolher o plano"
+                finally:
+                    api("admin/system", {"billing": {"enforce": False}}, stok, "PUT")
+                    api(f"admin/companies/{nc['company']['id']}", {"confirm": nc["company"]["name"]}, stok, "DELETE")
+
+        async with Step("31f Página de divulgação concorda com o sistema"):
+            await C.goto(BASE + "/"); await C.wait_for_timeout(600)
+            txt = " ".join((await C.text_content("main")).split())
+            for frag in ("Contrato fácil", "Comece grátis por 7 dias, depois só R$ 19,90 por mês", "R$ 199", "nome completo e o CPF/CNPJ", "Consultores na mesma conta", "Resumo do mês"):
+                assert frag in txt.replace("\u00a0", " "), f"faltou na página de divulgação: {frag}"
+            assert "contrato pronto ou o seu" not in txt.lower() and "vendedores na mesma" not in txt.lower()
+            await shot(C, "31f-divulgacao-preco", full=True)
+
+        async with Step("31g Segurança: tentativas de senha limitadas, cabeçalhos e chave da sessão"):
+            fake = f"ninguem.{STAMP}@exemplo.com"
+            codes = [api("admin/login", {"email": fake, "password": "errada123"})[0] for _ in range(9)]
+            assert codes[:8] == [401] * 8 and codes[8] == 429, codes
+            h = urllib.request.urlopen(BASE + "/").headers
+            for k in ("Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Permissions-Policy"):
+                assert h.get(k), f"falta o cabeçalho {k}"
+            # token montado com a chave antiga (senha do dono + texto fixo) não pode entrar
+            import hmac, hashlib, base64
+            key = hashlib.sha256((ADMIN_PW + "|propostas").encode()).digest()
+            pl = base64.urlsafe_b64encode(json.dumps({"exp": int(time.time() * 1000) + 864e5, "role": "super"}).encode()).rstrip(b"=").decode()
+            sg = base64.urlsafe_b64encode(hmac.new(key, pl.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
+            s_, _ = api("admin/bootstrap", tok=pl + "." + sg); assert s_ == 401, "token forjado entrou"
 
         async with Step("32 Despublicar e publicar a proposta"):
             pid = await new_proposal(A, f"{TAG} Publicação", ["projeto-avulso"])

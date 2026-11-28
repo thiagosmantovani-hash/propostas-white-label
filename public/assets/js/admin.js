@@ -58,6 +58,10 @@
     setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.innerHTML = old; btn.classList.remove("danger"); } }, 3500);
     return false;
   }
+  // assinatura: desenhada (imagem) ou só com nome completo e CPF/CNPJ
+  const sigModeSeg = (name, cur, opts = [["desenho", "Desenhar"], ["dados", "Só nome e CPF/CNPJ"]]) => `<div class="seg" role="radiogroup" aria-label="Forma de assinar">${opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}"${cur === v ? " checked" : ""}><span>${l}</span></label>`).join("")}</div>`;
+  const sigView = (sg) => (sg.image ? `<img src="${sg.image}" alt="Assinatura de ${esc(sg.name)}">` : `<span class="sig-typed"><small>Assinado eletronicamente por</small>${esc(sg.name)}</span>`);
+  const DATA_HINT = "Sem desenho: a assinatura fica registrada com o nome completo e o CPF/CNPJ, com data, hora, IP e o código do texto. Tem a mesma validade entre as partes.";
   const busy = (btn, on, txt) => { if (!btn) return; if (on) { btn.dataset.t = btn.innerHTML; btn.classList.add("is-busy"); if (txt) btn.textContent = txt; } else { btn.classList.remove("is-busy"); if (btn.dataset.t) btn.innerHTML = btn.dataset.t; } };
   const waLink = (phone, text) => { let d = R.digits(phone); if (d && d.length <= 11) d = "55" + d; return `https://wa.me/${d}?text=${encodeURIComponent(text)}`; };
 
@@ -118,7 +122,7 @@
     const btn = { entrar: "Entrar", criar: "Criar minha conta", esqueci: "Enviar link", dono: "Entrar", nova: "Salvar e entrar" }[mode];
     const foot = {
       entrar: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="esqueci">Esqueci minha senha</button></p>',
-      criar: '<p class="muted small" style="margin:0">Cada conta tem o seu próprio painel: propostas, contratos, clientes e equipe só da sua empresa.</p>',
+      criar: '<p class="muted small" style="margin:0" id="trialNote">Comece grátis por 7 dias, depois só R$ 19,90 por mês. Cada conta tem o seu próprio painel: propostas, contratos, clientes e equipe só da sua empresa.</p>',
       esqueci: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
       dono: '<p class="muted small" style="margin:0">Acesso exclusivo do dono do sistema.</p>',
       nova: '<p class="muted small" style="margin:0"><button type="button" class="link-btn" data-mode="entrar">Voltar para Entrar</button></p>',
@@ -127,7 +131,7 @@
       <aside class="login-side">
         <a class="back" href="/">← Voltar ao site</a>
         <div><span class="tagp">Para empresas e freelancers</span><h2>Propostas que viram <mark>contrato assinado.</mark></h2><p>Monte a proposta com a sua marca, mande o link e acompanhe até a assinatura, tudo num lugar só.</p></div>
-        <ul><li>Propostas com a sua marca</li><li>Contrato e assinatura online</li><li>Envio por WhatsApp e e-mail</li></ul>
+        <ul><li>Propostas com a sua marca</li><li>Contrato fácil e assinatura online</li><li>Envio por WhatsApp e e-mail</li><li>Resumo do mês com o que foi fechado</li></ul>
       </aside>
       <div class="login-main">
       <form id="loginForm" novalidate><div id="loginLogo" class="fx-logo">${FX_MARK}<span class="wordmark">Fechaí</span></div>
@@ -141,6 +145,7 @@
     // nome do sistema e cadastro aberto/fechado (painel do dono)
     R.api("public/system").then((y) => {
       const l = $("#loginLogo"); if (l) l.innerHTML = `${FX_MARK}<span class="wordmark">${esc(y.productName)}</span>`;
+      const tn = $("#trialNote"); if (tn && y.plans) tn.textContent = `Comece grátis por ${y.plans.trialDays} dias, depois só ${mny(y.plans.mensal)} por mês. Cada conta tem o seu próprio painel: propostas, contratos, clientes e equipe só da sua empresa.`;
       if (!y.signupOpen) { const t = $('[data-mode="criar"]'); if (t) t.remove(); if (mode === "criar") login("entrar", "O cadastro de novas contas está fechado no momento."); }
     }).catch(() => {});
     const f0 = $("#loginForm input:not([tabindex='-1'])"); if (f0) f0.focus();
@@ -193,6 +198,7 @@
     const dt = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "nunca");
     const host = location.host;
     const lim = (c) => (c.maxSellers ? `${c.sellers} de ${c.maxSellers}` : `${c.sellers}`);
+    const subCell = (sb) => `<span class="st ${sb.status === "vencida" ? "recusada" : sb.status === "teste" ? "contrato" : "assinada"}">${SUB_LABEL[sb.status]}</span><br><span class="muted small">${sb.status === "ativa" ? `${PLAN_LABEL[sb.plan] || ""} até ${dBR(sb.paidUntil)}${sb.canceled ? " · não renova" : ""}` : sb.status === "teste" ? `até ${dBR(sb.trialEndsAt)}` : sb.status === "vencida" ? (sb.paidUntil ? `desde ${dBR(sb.paidUntil)}` : `teste até ${dBR(sb.trialEndsAt)}`) : ""}${sb.requested ? `<br><b>Pediu o ${PLAN_LABEL[sb.requested.plan].toLowerCase()}</b>` : ""}</span>`;
     app.innerHTML = `<header class="adm-top wrap"><div class="inner">
         <a class="brand fx-logo" href="/dono">${FX_MARK}<span class="wordmark">${esc(sys.productName)}</span></a><span class="tag">Painel do dono</span>
         <nav><a class="pill pill-line" href="#sup-cfg">Configurações</a><a class="pill pill-line" href="#sup-contas">Contas</a>${themeBtn()}<button class="pill pill-line" type="button" id="logout">Sair</button></nav>
@@ -204,6 +210,12 @@
         <div class="tile"><span>Novas em 7 dias</span><b>${st.new7}</b><small>${st.active7} entraram nos últimos 7 dias</small></div>
         <div class="tile"><span>Propostas</span><b>${st.proposals}</b><small>somando todas as contas</small></div>
         <div class="tile"><span>Contratos</span><b>${st.contracts}</b><small>gerados em todas as contas</small></div>
+      </div>
+      <div class="tiles" style="margin-bottom:24px">
+        <div class="tile"><span>Em teste grátis</span><b>${st.trial}</b><small>${D.billing.trialDays} dias de teste</small></div>
+        <div class="tile"><span>Pagantes</span><b>${st.paying}</b><small>${st.expired} vencida(s)</small></div>
+        <div class="tile"><span>Receita mensal estimada</span><b>${esc(brl(st.mrr))}</b><small>anual dividido por 12</small></div>
+        <div class="tile"><span>Pedidos de plano</span><b>${st.requests}</b><small>aguardando confirmar o pagamento</small></div>
       </div>
       <div id="supOut"></div>
       <div class="cols" id="sup-cfg">
@@ -217,6 +229,16 @@
             </div>
             <label class="fl"><span>Aviso para todas as contas (aparece no topo do painel delas; deixe vazio para não mostrar)</span><textarea class="inp" id="sNotice" rows="2" maxlength="400">${esc(sys.notice || "")}</textarea></label>
             <div class="row-acts"><button type="button" class="pill pill-green" id="sSave">Salvar configurações</button></div>
+          </div>
+          <div class="card"><h2>Planos e cobrança</h2>
+            <div class="grid3">
+              <label class="fl"><span>Teste grátis (dias)</span><input class="inp" id="bTrial" type="number" min="0" max="90" value="${esc(D.billing.trialDays)}"></label>
+              <label class="fl"><span>Plano mensal (R$)</span><input class="inp" id="bMonthly" inputmode="decimal" value="${esc(String(D.billing.monthly).replace(".", ","))}"></label>
+              <label class="fl"><span>Plano anual (R$)</span><input class="inp" id="bAnnual" inputmode="decimal" value="${esc(String(D.billing.annual).replace(".", ","))}"></label>
+            </div>
+            <label class="check"><input type="checkbox" id="bEnforce"${D.billing.enforce ? " checked" : ""}><span>Exigir plano depois do teste: conta vencida fica só para consulta (não cria nem envia propostas). Os links já enviados aos clientes continuam funcionando.</span></label>
+            <p class="muted small" style="margin:0">Os preços aparecem na página de divulgação e na tela Plano e pagamento das contas. Pagamento: <b>${esc(D.billingProvider)}</b>. Com a confirmação manual, a conta escolhe o plano e você registra o pagamento em Cobrança, na lista de contas. Para cobrar automático, ligue o Asaas ou o Stripe (BILLING_PROVIDER no Netlify).</p>
+            <div class="row-acts"><button type="button" class="pill pill-green" id="bSave">Salvar planos</button></div>
           </div>
         </div>
         <div class="stack">
@@ -232,16 +254,15 @@
           </div>
           <div class="card"><h2>Situação do sistema</h2>
             <p class="small" style="margin:0">E-mail automático: <b>${D.emailEnabled ? "ativo" : "desligado"}</b>${D.emailEnabled ? "" : " (sem ele, “Esqueci minha senha” não envia o link; use Nova senha na conta)"}</p>
-            <p class="small" style="margin:0">WhatsApp automático: <b>${D.waEnabled ? "ativo" : "desligado"}</b></p>
           </div>
         </div>
       </div>
       <div class="pgh" id="sup-contas" style="margin-top:32px"><div><span class="label">Contas</span><h2 style="margin:6px 0 0">Contas cadastradas</h2></div></div>
       <div class="row-acts" style="margin-bottom:12px;flex-wrap:wrap"><input class="inp" id="supQ" placeholder="Buscar por empresa, responsável, e-mail ou anotação" value="${esc(S.supQ || "")}" style="flex:1;min-width:220px">
         ${[["todas", "Todas"], ["ativas", "Ativas"], ["bloqueadas", "Bloqueadas"]].map(([k, t]) => `<button type="button" class="pill ${f === k ? "on" : "pill-line"} pill-sm" data-supf="${k}">${t}</button>`).join("")}</div>
-      ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Conta</th><th>Responsável</th><th>Criada</th><th>Último acesso</th><th>Propostas</th><th>Consultores</th><th>Situação</th><th class="r">Ações</th></tr></thead><tbody>
-        ${rows.map((c) => `<tr><td><b>${esc(c.name)}</b>${c.demo ? ' <span class="muted small">(teste)</span>' : ""}${c.note ? `<br><span class="muted small">${esc(c.note)}</span>` : ""}</td><td>${esc(c.owner.name)}<br><span class="muted small">${esc(c.owner.email)}</span></td><td>${dt(c.createdAt)}<br><span class="muted small">${c.createdBy === "dono" ? "por você" : "cadastro"}</span></td><td>${dt(c.lastLoginAt)}</td><td>${c.proposals}</td><td>${lim(c)}</td><td><span class="st ${c.blocked ? "recusada" : "assinada"}">${c.blocked ? "Bloqueada" : "Ativa"}</span></td>
-          <td class="r"><div class="row-acts" style="justify-content:flex-end;flex-wrap:wrap"><button type="button" class="pill pill-green pill-sm" data-enter="${esc(c.id)}">Entrar</button><button type="button" class="pill pill-line pill-sm" data-edit="${esc(c.id)}">Editar</button><button type="button" class="pill pill-line pill-sm" data-reset="${esc(c.id)}">Nova senha</button><button type="button" class="pill ${c.blocked ? "pill-cream" : "pill-line"} pill-sm" data-block="${esc(c.id)}" data-on="${c.blocked ? 0 : 1}">${c.blocked ? "Liberar" : "Bloquear"}</button><button type="button" class="pill pill-line pill-sm" data-del="${esc(c.id)}">Excluir</button></div></td></tr>`).join("")}
+      ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Conta</th><th>Responsável</th><th>Criada</th><th>Último acesso</th><th>Propostas</th><th>Consultores</th><th>Plano</th><th>Situação</th><th class="r">Ações</th></tr></thead><tbody>
+        ${rows.map((c) => `<tr><td><b>${esc(c.name)}</b>${c.demo ? ' <span class="muted small">(teste)</span>' : ""}${c.note ? `<br><span class="muted small">${esc(c.note)}</span>` : ""}</td><td>${esc(c.owner.name)}<br><span class="muted small">${esc(c.owner.email)}</span></td><td>${dt(c.createdAt)}<br><span class="muted small">${c.createdBy === "dono" ? "por você" : "cadastro"}</span></td><td>${dt(c.lastLoginAt)}</td><td>${c.proposals}</td><td>${lim(c)}</td><td>${subCell(c.sub)}</td><td><span class="st ${c.blocked ? "recusada" : "assinada"}">${c.blocked ? "Bloqueada" : "Ativa"}</span></td>
+          <td class="r"><div class="row-acts" style="justify-content:flex-end;flex-wrap:wrap"><button type="button" class="pill pill-green pill-sm" data-enter="${esc(c.id)}">Entrar</button><button type="button" class="pill pill-line pill-sm" data-edit="${esc(c.id)}">Editar</button><button type="button" class="pill ${c.sub.requested ? "pill-cream" : "pill-line"} pill-sm" data-bill="${esc(c.id)}">Cobrança</button><button type="button" class="pill pill-line pill-sm" data-reset="${esc(c.id)}">Nova senha</button><button type="button" class="pill ${c.blocked ? "pill-cream" : "pill-line"} pill-sm" data-block="${esc(c.id)}" data-on="${c.blocked ? 0 : 1}">${c.blocked ? "Liberar" : "Bloquear"}</button><button type="button" class="pill pill-line pill-sm" data-del="${esc(c.id)}">Excluir</button></div></td></tr>`).join("")}
       </tbody></table></div>` : `<div class="card"><div class="empty"><b>${cs.length ? "Nenhuma conta com esse filtro" : "Nenhuma conta ainda"}</b><span>${cs.length ? "Mude a busca ou o filtro." : "Quando alguém criar a conta pela página de divulgação, ela aparece aqui. Você também pode criar em Criar conta."}</span></div></div>`}
       </div></main>`;
     $("#logout").addEventListener("click", () => logout());
@@ -257,6 +278,25 @@
       try { await put("system", { productName: $("#sName").value.trim(), signupOpen: $("#sOpen").checked, defaultMaxSellers: $("#sMax").value, defaultValidityDays: $("#sDays").value, notice: $("#sNotice").value.trim() }); await refresh("Configurações salvas."); }
       catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
     });
+    $("#bSave").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true, "Salvando…");
+      try { await put("system", { billing: { trialDays: $("#bTrial").value, monthly: $("#bMonthly").value, annual: $("#bAnnual").value, enforce: $("#bEnforce").checked } }); await refresh("Planos salvos."); }
+      catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
+    });
+    $$("[data-bill]").forEach((b) => b.addEventListener("click", async () => {
+      const c = byId(b.dataset.bill), sb = c.sub, rq = sb.requested;
+      const H = { pagamento: "Pagamento", pedido: "Pedido de plano", cancelamento: "Renovação cancelada", cortesia: "Cortesia", "fim da cortesia": "Fim da cortesia", "teste estendido": "Teste estendido" };
+      const v = await confirmModal({ eyebrow: "Cobrança", tone: "green", title: esc(c.name), confirm: "Aplicar",
+        html: `<p class="small" style="margin:0">Situação: <b>${SUB_LABEL[sb.status]}</b>${sb.status === "ativa" ? ` · ${PLAN_LABEL[sb.plan] || ""} pago até ${dBR(sb.paidUntil)}` : sb.status === "teste" ? ` · teste até ${dBR(sb.trialEndsAt)}` : ""}${rq ? ` · pediu o plano ${PLAN_LABEL[rq.plan].toLowerCase()} em ${esc(R.dateTime(rq.at))}` : ""}</p>
+          <label class="fl"><span>O que fazer</span><select class="sel" id="blAct"><option value="pay">Registrar pagamento recebido</option><option value="trial">Estender o teste grátis</option><option value="exempt">${sb.status === "isenta" && !c.demo ? "Tirar a cortesia" : "Dar cortesia (sem cobrança)"}</option>${sb.status === "ativa" && !sb.canceled ? '<option value="cancel">Cancelar a renovação</option>' : ""}</select></label>
+          <div class="grid2"><label class="fl"><span>Plano pago</span><select class="sel" id="blPlan"><option value="mensal"${(rq ? rq.plan : sb.plan) !== "anual" ? " selected" : ""}>Mensal · ${esc(brl(D.billing.monthly))}</option><option value="anual"${(rq ? rq.plan : sb.plan) === "anual" ? " selected" : ""}>Anual · ${esc(brl(D.billing.annual))}</option></select></label>
+          <label class="fl"><span>Valor recebido (R$, vazio = preço do plano)</span><input class="inp" id="blAmt" inputmode="decimal"></label></div>
+          <div class="grid2"><label class="fl"><span>Dias a mais de teste</span><input class="inp" id="blDays" type="number" min="1" max="90" value="7"></label><label class="fl"><span>Anotação (ex.: Pix de 28/11)</span><input class="inp" id="blNote" maxlength="200"></label></div>
+          ${c.billingHistory.length ? `<ul class="lines small">${c.billingHistory.map((h) => `<li><span>${esc(H[h.type] || h.type)}${h.plan ? " · " + esc(PLAN_LABEL[h.plan] || h.plan) : ""}${h.amount ? " · " + esc(brl(h.amount)) : ""}${h.until ? ` · até ${dBR(h.until)}` : ""}${h.note ? " · " + esc(h.note) : ""}</span><span class="muted">${esc(R.dateTime(h.at))}</span></li>`).join("")}</ul>` : ""}`,
+        getValue: (w) => ({ action: $("#blAct", w).value, plan: $("#blPlan", w).value, amount: $("#blAmt", w).value.replace(",", "."), days: $("#blDays", w).value, note: $("#blNote", w).value.trim(), on: !(sb.status === "isenta" && !c.demo) }) });
+      if (!v) return;
+      try { await post(`companies/${c.id}/billing`, v); await refresh(v.action === "pay" ? "Pagamento registrado. O plano está ativo." : "Cobrança atualizada."); } catch (err) { R.toast(err.message); }
+    }));
     $("#demoAcc").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
       if (cs.some((c) => c.demo) && !(await confirmModal({ title: "Recriar a conta de teste?", html: "<p>Tudo o que foi feito na conta de teste é apagado e ela volta ao modelo inicial. O login continua o mesmo.</p>", confirm: "Recriar" }))) return;
@@ -329,7 +369,8 @@
     let c = null;
     try { c = (await api("account")).company; } catch (e) { R.toast(e.message); return; }
     shell("acc", `
-      <div class="pgh"><div><span class="label">Administrador</span><h1>Minha conta</h1><p class="sub">Dados de acesso do responsável pela conta de ${esc(c.name)}. Os dados que aparecem nas propostas e contratos ficam em Empresa.</p></div></div>
+      <div class="pgh"><div><span class="label">Administrador</span><h1>Conta e plano</h1><p class="sub">Dados de acesso do responsável pela conta de ${esc(c.name)} e o plano do sistema. Os dados que aparecem nas propostas e contratos ficam em Empresa.</p></div></div>
+      ${(() => { const sb = S.data.sub || {}; return `<a class="card accent page-cta" href="#/plano" style="margin-bottom:16px"><span><b>Plano e pagamento · ${esc(SUB_LABEL[sb.status] || "")}</b><small>${sb.status === "teste" ? `Teste grátis até ${dBR(sb.trialEndsAt)}. Depois, ${brl((sb.prices || {}).mensal)} por mês ou ${brl((sb.prices || {}).anual)} por ano.` : sb.status === "ativa" ? `Plano ${(PLAN_LABEL[sb.plan] || "").toLowerCase()} pago até ${dBR(sb.paidUntil)}.` : sb.status === "isenta" ? "Esta conta não tem cobrança." : "O plano venceu. Escolha um plano para continuar."}</small></span><span class="pill pill-green">Ver planos</span></a>`; })()}
       <div class="cols">
         <div class="stack"><div class="card"><h2>Dados de acesso</h2>
           <label class="fl"><span>Seu nome</span><input class="inp" id="aName" value="${esc(c.owner.name)}"></label>
@@ -356,12 +397,144 @@
     });
   }
 
+  /* ---------- plano e pagamento (responsável pela empresa) ---------- */
+  const PLAN_LABEL = { mensal: "Mensal", anual: "Anual" };
+  const SUB_LABEL = { teste: "Teste grátis", ativa: "Ativo", vencida: "Vencido", isenta: "Cortesia" };
+  const dBR = (iso) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "");
+  // faixa no topo do painel: dias de teste, plano vencido ou pedido aguardando confirmação
+  function planBanner(active) {
+    const sb = S.data.sub;
+    if (!sb || active === "plan") return "";
+    const bar = (cls, html, cta) => `<div class="${cls}" style="margin:0;border-radius:0;justify-content:center"><span>${html}</span>${cta && isAdm() ? `<a class="pill pill-cream pill-sm" href="#/plano">${cta}</a>` : ""}</div>`;
+    if (sb.status === "vencida") return bar("warnbox", isAdm() ? `<b>${sb.paidUntil ? "O seu plano venceu." : "O teste grátis terminou."}</b> ${sb.enforce ? "Escolha um plano para voltar a criar e enviar propostas. Os links já enviados continuam funcionando." : "Escolha um plano para continuar usando sem interrupção."}` : "O plano da sua empresa venceu. Fale com o administrador da conta.", "Escolher plano");
+    if (!isAdm()) return "";
+    if (sb.requested) return bar("okbox", `Pedido do plano ${PLAN_LABEL[sb.requested.plan] || ""} recebido. O plano fica ativo assim que o pagamento for confirmado.`);
+    if (sb.status === "teste") return bar("okbox", `Teste grátis: ${sb.daysLeft === 1 ? "último dia" : `faltam ${sb.daysLeft} dias`} (até ${dBR(sb.trialEndsAt)}). Depois, ${brl(sb.prices.mensal)} por mês.`, "Ver planos");
+    if (sb.status === "ativa" && sb.daysLeft <= 5) return bar("warnbox", sb.canceled ? `O seu plano termina em ${dBR(sb.paidUntil)} e não será renovado.` : `O seu plano ${PLAN_LABEL[sb.plan] ? PLAN_LABEL[sb.plan].toLowerCase() : ""} vence em ${dBR(sb.paidUntil)}.`, "Renovar");
+    return "";
+  }
+  async function plan() {
+    shell("plan", R.loadingHTML("Carregando…"));
+    let d;
+    try { d = await api("billing"); } catch (e) { R.toast(e.message); return; }
+    const sb = d.sub, pr = sb.prices, annualMonth = pr.anual / 12, save = Math.max(0, Math.round((1 - pr.anual / (pr.mensal * 12)) * 100));
+    const statusLine = sb.status === "isenta" ? "Esta conta não tem cobrança."
+      : sb.status === "teste" ? `Teste grátis até ${dBR(sb.trialEndsAt)} (${sb.daysLeft === 1 ? "último dia" : `${sb.daysLeft} dias`}). Escolha um plano para continuar depois disso.`
+      : sb.status === "ativa" ? `Plano ${PLAN_LABEL[sb.plan] ? PLAN_LABEL[sb.plan].toLowerCase() : ""} pago até ${dBR(sb.paidUntil)}.${sb.canceled ? " A renovação foi cancelada: o acesso continua até essa data." : ""}`
+      : `${sb.paidUntil ? `O plano venceu em ${dBR(sb.paidUntil)}.` : `O teste grátis terminou em ${dBR(sb.trialEndsAt)}.`} ${sb.enforce ? "Até escolher um plano, a conta fica só para consulta; os links já enviados continuam funcionando." : ""}`;
+    const card = (k, price, per, note, best) => `<div class="card plan-card${best ? " best" : ""}${sb.plan === k && sb.status === "ativa" ? " cur" : ""}"><div class="ch"><h2>${PLAN_LABEL[k]}</h2>${best ? '<span class="st assinada">Mais econômico</span>' : ""}</div>
+        <p class="plan-price"><b>${brl(price)}</b><span>/${per}</span></p><p class="muted small" style="margin:0">${note}</p>
+        <div class="row-acts"><button type="button" class="pill ${best ? "pill-green" : "pill-line"} pill-lg" data-plan="${k}"${sb.status === "isenta" || S.data.su ? " disabled" : ""}>${sb.status === "ativa" && sb.plan === k ? "Renovar" : sb.status === "ativa" ? `Mudar para o ${PLAN_LABEL[k].toLowerCase()}` : `Assinar o ${PLAN_LABEL[k].toLowerCase()}`}</button></div></div>`;
+    const TYPE = { pagamento: "Pagamento", pedido: "Pedido de plano", cancelamento: "Renovação cancelada", cortesia: "Cortesia", "fim da cortesia": "Fim da cortesia", "teste estendido": "Teste estendido" };
+    shell("plan", `
+      <div class="pgh"><div><span class="label">Assinatura do sistema</span><h1>Plano e pagamento</h1><p class="sub">${esc(statusLine)}</p></div><span class="st ${sb.status === "vencida" ? "recusada" : sb.status === "teste" ? "contrato" : "assinada"}">${SUB_LABEL[sb.status]}</span></div>
+      ${sb.requested ? `<div class="okbox" style="margin-bottom:16px">Pedido do plano <b>${PLAN_LABEL[sb.requested.plan]}</b> feito em ${esc(R.dateTime(sb.requested.at))}. Você recebe as instruções de pagamento no e-mail de acesso, e o plano fica ativo assim que o pagamento for confirmado.</div>` : ""}
+      <div class="cols">
+        ${card("mensal", pr.mensal, "mês", "Pago todo mês. Cancele quando quiser.", false)}
+        ${card("anual", pr.anual, "ano", `Equivale a ${brl(annualMonth)} por mês${save ? `, ${save}% a menos que o mensal` : ""}. Pago uma vez por ano.`, true)}
+      </div>
+      <div class="cols" style="margin-top:16px">
+        <div class="stack"><div class="card"><h2>O que está incluso</h2>
+          <ul class="small steps-list"><li>Propostas e contratos ilimitados, com a sua marca</li><li>Assinatura online (desenhada ou com nome e CPF/CNPJ)</li><li>Consultores na mesma conta${sb.status !== "isenta" ? "" : ""}</li><li>Resumo do mês com valores fechados</li><li>Links que continuam funcionando para os seus clientes</li></ul>
+          ${sb.status === "ativa" && !sb.canceled ? '<div class="row-acts"><button type="button" class="pill pill-line pill-sm" id="planCancel">Cancelar a renovação</button></div>' : ""}
+        </div></div>
+        <div class="stack"><div class="card"><h2>Histórico</h2>
+          ${d.history.length ? `<ul class="lines">${d.history.map((h) => `<li><span>${esc(TYPE[h.type] || h.type)}${h.plan ? " · " + esc(PLAN_LABEL[h.plan] || h.plan) : ""}${h.amount ? " · " + brl(h.amount) : ""}${h.until ? ` · até ${dBR(h.until)}` : ""}</span><span class="muted small">${esc(R.dateTime(h.at))}</span></li>`).join("")}</ul>` : '<p class="muted small" style="margin:0">Nenhum pagamento ainda.</p>'}
+          <p class="muted small" style="margin:0">Pagamento: ${esc(d.provider)}.</p>
+        </div></div>
+      </div>`);
+    $$("[data-plan]").forEach((b) => b.addEventListener("click", async () => {
+      const k = b.dataset.plan;
+      const ok = await confirmModal({ eyebrow: "Plano", tone: "green", title: `Assinar o plano ${PLAN_LABEL[k].toLowerCase()}?`, html: `<p>${k === "anual" ? `${brl(pr.anual)} por ano` : `${brl(pr.mensal)} por mês`}. ${sb.status === "ativa" ? "O novo período começa quando o atual terminar." : "O plano fica ativo assim que o pagamento for confirmado."}</p>`, confirm: "Confirmar" });
+      if (!ok) return;
+      busy(b, true, "Enviando…");
+      try { const r = await post("billing/checkout", { plan: k }); if (r.url) { location.href = r.url; return; } await reload(); plan(); R.toast("Pedido registrado. As instruções de pagamento chegam no seu e-mail."); }
+      catch (err) { R.toast(err.message); busy(b, false); }
+    }));
+    const pc = $("#planCancel");
+    if (pc) pc.addEventListener("click", async () => { if (!armed(pc, "O acesso continua até o fim do período. Confirmar?")) return; try { await post("billing/cancel"); await reload(); plan(); R.toast("Renovação cancelada."); } catch (err) { R.toast(err.message); } });
+  }
+
+  /* ---------- resumo do mês ---------- */
+  const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const monthName = (ym) => { const [y, m] = ym.split("-").map(Number); return `${MONTHS[m - 1]} de ${y}`; };
+  const shiftMonth = (ym, n) => { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
+  // soma por moeda: R$ primeiro; outras moedas ao lado
+  const mm = (o) => { const e = Object.entries(o || {}).filter(([, v]) => v); if (!e.length) return mny(0); e.sort(([a], [b]) => (a === "BRL" ? -1 : b === "BRL" ? 1 : a.localeCompare(b))); return e.map(([c, v]) => mny(v, c)).join(" + "); };
+  const brlOf = (o) => (o && o.BRL) || 0;
+  const delta = (now, before) => { if (!before && !now) return ""; if (!before) return '<small class="up">novo</small>'; const d = Math.round(((now - before) / before) * 100); return `<small class="${d >= 0 ? "up" : "down"}">${d >= 0 ? "+" : ""}${d}% sobre o mês anterior</small>`; };
+  const EV = { fechada: ["Fechada", "assinada"], aceita: ["Aceita", "pedido"], recusada: ["Recusada", "recusada"], vencida: ["Vencida", "vencida"], criada: ["Em aberto", "enviada"], enviada: ["Enviada", "enviada"] };
+  async function report(ym) {
+    const month = ym || S.repMonth || S.data.today.slice(0, 7);
+    S.repMonth = month;
+    shell("rep", R.loadingHTML("Montando o resumo…"));
+    let r;
+    try { r = await api("report?month=" + encodeURIComponent(month)); } catch (e) { shell("rep", `<div class="card"><div class="empty"><b>${esc(e.message)}</b></div></div>`); return; }
+    const C = r.counts, M = r.money, P = r.previous;
+    const closedTxt = [brlOf(M.signedOnce) || !brlOf(M.signedMonthly) ? mm(M.signedOnce) : "", brlOf(M.signedMonthly) ? mm(M.signedMonthly) + "/mês" : ""].filter(Boolean).join(" + ");
+    const rate = (v) => (v == null ? "-" : v + "%");
+    shell("rep", `
+      <div class="pgh rep-head"><div><span class="label">${r.seller ? "Suas propostas" : "Todas as propostas"}</span><h1>Resumo de ${esc(monthName(r.month))}</h1><p class="sub">Propostas criadas, aceitas, recusadas e fechadas no mês, com os serviços e os valores. Conta pela data de cada acontecimento (horário de Brasília).</p></div>
+        <div class="acts no-print"><button type="button" class="pill pill-line" id="repPrev"${r.month <= r.firstMonth ? " disabled" : ""}>← Mês anterior</button><input class="inp" type="month" id="repMonth" value="${esc(r.month)}" min="${esc(r.firstMonth)}" max="${esc(r.currentMonth)}" style="width:auto"><button type="button" class="pill pill-line" id="repNext"${r.month >= r.currentMonth ? " disabled" : ""}>Próximo mês →</button><button type="button" class="pill pill-line" id="repCsv">Baixar planilha (.csv)</button><button type="button" class="pill pill-green" id="repPrint">Imprimir ou salvar PDF</button></div></div>
+      <div class="tiles">
+        <div class="tile"><span>Valor fechado</span><b>${esc(closedTxt)}</b>${delta(brlOf(M.signedOnce) + brlOf(M.signedMonthly), brlOf(P.money.signedOnce) + brlOf(P.money.signedMonthly))}</div>
+        <div class="tile"><span>Contratos assinados</span><b>${C.signed}</b><small>${P.counts.signed} no mês anterior</small></div>
+        <div class="tile"><span>Propostas criadas</span><b>${C.created}</b><small>${C.sent} enviadas · ${C.viewed} abertas pelo cliente</small></div>
+        <div class="tile"><span>Aceitas · recusadas</span><b>${C.ordered} · ${C.declined}</b><small>${C.expired} vencida(s) sem resposta</small></div>
+      </div>
+      <div class="cols" style="margin-top:16px">
+        <div class="stack"><div class="card"><h2>Finanças do mês</h2>
+          <dl class="kv">
+            <dt>Projetos fechados</dt><dd>${esc(mm(M.signedOnce))}</dd>
+            <dt>Mensalidades fechadas</dt><dd>${esc(mm(M.signedMonthly))}/mês</dd>
+            <dt>Valor total dos contratos</dt><dd>${esc(mm(M.signedTerm))} <span class="muted small">(projetos + mensalidades pelo prazo mínimo)</span></dd>
+            <dt>Entradas a receber</dt><dd>${esc(mm(M.signedUpfront))} <span class="muted small">(para começar)</span></dd>
+            <dt>Aceitas, sem contrato assinado</dt><dd>${esc(mm(M.pendingOnce))}${brlOf(M.pendingMonthly) || Object.keys(M.pendingMonthly).length ? " + " + esc(mm(M.pendingMonthly)) + "/mês" : ""}</dd>
+            <dt>Valor recusado (estimado)</dt><dd>${esc(mm(M.declinedMin))} <span class="muted small">(menor opção de cada serviço)</span></dd>
+          </dl>
+        </div></div>
+        <div class="stack"><div class="card"><h2>Desempenho</h2>
+          <dl class="kv">
+            <dt>Taxa de aceite</dt><dd>${rate(r.rates.acceptance)} <span class="muted small">das propostas criadas no mês já têm pedido</span></dd>
+            <dt>Taxa de fechamento</dt><dd>${rate(r.rates.closing)} <span class="muted small">assinadas entre as decididas no mês (assinadas + recusadas)</span></dd>
+            <dt>Em aberto</dt><dd>${C.open} proposta(s) criada(s) no mês ainda sem resposta</dd>
+            <dt>Valor proposto</dt><dd>${esc(mm(M.offeredMin))} <span class="muted small">(menor opção de cada serviço, nas propostas criadas)</span></dd>
+          </dl>
+        </div></div>
+      </div>
+      <div class="card" style="margin-top:16px"><h2>Serviços</h2>
+        ${r.services.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Serviço</th><th class="n">Oferecido</th><th class="n">Escolhido</th><th class="n">Fechado</th><th class="r">Valor fechado</th></tr></thead><tbody>${r.services.map((x) => `<tr><td><b>${esc(x.name)}</b><div class="svcs">${x.kind === "mensal" ? "Mensal" : "Projeto"}</div></td><td class="n">${x.offered}</td><td class="n">${x.chosen}</td><td class="n">${x.signed}</td><td class="r">${x.signed ? esc(x.kind === "mensal" ? mm(x.monthly) + "/mês" : mm(x.once)) : '<span class="muted">-</span>'}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted small" style="margin:0">Nenhum serviço oferecido ou fechado neste mês.</p>'}
+      </div>
+      ${!r.seller && r.sellers.length > 1 ? `<div class="card" style="margin-top:16px"><h2>Por consultor</h2><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Quem</th><th class="n">Criadas</th><th class="n">Aceitas</th><th class="n">Recusadas</th><th class="n">Fechadas</th><th class="r">Valor fechado</th></tr></thead><tbody>${r.sellers.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td class="n">${x.created}</td><td class="n">${x.ordered}</td><td class="n">${x.declined}</td><td class="n">${x.signed}</td><td class="r">${x.signed ? esc([Object.keys(x.once).length ? mm(x.once) : "", Object.keys(x.monthly).length ? mm(x.monthly) + "/mês" : ""].filter(Boolean).join(" + ")) : '<span class="muted">-</span>'}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
+      <div class="card" style="margin-top:16px"><h2>Propostas do mês</h2>
+        ${r.rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="n">Nº</th><th>Cliente</th>${r.seller ? "" : "<th>Consultor</th>"}<th>No mês</th><th class="r">Valor</th></tr></thead><tbody>${r.rows.map((x) => `<tr data-id="${esc(x.id)}"><td class="n">${esc(x.number)}</td><td><b>${esc(x.client || "Sem nome")}</b><div class="svcs">${esc(x.services.join(" · "))}</div>${x.reason ? `<div class="svcs">Motivo: ${esc(x.reason)}</div>` : ""}</td>${r.seller ? "" : `<td>${x.seller ? esc(x.seller) : '<span class="muted">-</span>'}</td>`}<td><span class="st ${EV[x.event][1]}">${EV[x.event][0]}</span></td><td class="r">${x.once || x.monthly ? `${x.once ? mny(x.once, x.currency) : ""}${x.once && x.monthly ? "<br>" : ""}${x.monthly ? mny(x.monthly, x.currency) + "/mês" : ""}` : '<span class="muted">-</span>'}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty"><span>Nenhuma proposta criada, aceita, recusada ou fechada neste mês.</span></div>'}
+      </div>`);
+    const go = (v) => { if (v) location.hash = "#/resumo/" + v; };
+    $("#repMonth").addEventListener("change", (e) => go(e.target.value));
+    $("#repPrev").addEventListener("click", () => go(shiftMonth(r.month, -1)));
+    $("#repNext").addEventListener("click", () => go(shiftMonth(r.month, 1)));
+    $("#repPrint").addEventListener("click", () => window.print());
+    $$(".tbl tr[data-id]").forEach((tr) => tr.addEventListener("click", () => (location.hash = "#/proposta/" + tr.dataset.id)));
+    $("#repCsv").addEventListener("click", () => {
+      // planilha com ponto e vírgula (abre direto no Excel em português); campos que começam com = + - @ ganham um apóstrofo
+      const cell = (v) => { let x = String(v ?? ""); if (/^[=+\-@\t\r]/.test(x)) x = "'" + x; return /[;"\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+      const num = (v) => (Number(v) || 0).toFixed(2).replace(".", ",");
+      const head = ["Número", "Cliente", "Serviços", ...(r.seller ? [] : ["Consultor"]), "No mês", "Moeda", "Projetos", "Mensal", "Criada em", "Assinada em", "Recusada em", "Motivo da recusa"];
+      const lines = r.rows.map((x) => [x.number, x.client, x.services.join(" | "), ...(r.seller ? [] : [x.seller]), EV[x.event][0], x.currency, num(x.once), num(x.monthly), x.createdAt ? R.dateTime(x.createdAt) : "", x.signedAt ? R.dateTime(x.signedAt) : "", x.declinedAt ? R.dateTime(x.declinedAt) : "", x.reason]);
+      const csv = "\ufeff" + [head, ...lines].map((l) => l.map(cell).join(";")).join("\r\n");
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = `resumo-${r.month}.csv`; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+    });
+  }
+
   /* ---------- casca ---------- */
   function shell(active, html) {
     const nav = isAdm()
-      ? [["#/", "Propostas", "list"], ["#/pagina", "Página da proposta", "page"], ["#/servicos", "Serviços", "cat"], ["#/equipe", "Equipe", "team"], ["#/empresa", "Empresa", "biz"], ["#/config", "Configurações", "cfg"], ...(S.data.su ? [] : [["#/conta", "Minha conta", "acc"]])]
-      : [["#/", "Propostas", "list"], ["#/perfil", "Meu perfil", "me"]];
-    app.innerHTML = `${S.data.notice ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>${esc(S.data.notice)}</span></div>` : ""}${S.data.su ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>Você está no painel de <b>${esc(S.data.company.name)}</b> como dono do sistema.</span><button type="button" class="pill pill-cream pill-sm" id="suBack">Voltar à lista de empresas</button></div>` : ""}<header class="adm-top wrap"><div class="inner">
+      ? [["#/", "Propostas", "list"], ["#/resumo", "Resumo", "rep"], ["#/pagina", "Página da proposta", "page"], ["#/servicos", "Serviços", "cat"], ["#/equipe", "Equipe", "team"], ["#/empresa", "Empresa", "biz"], ["#/config", "Configurações", "cfg"], S.data.su ? ["#/plano", "Plano", "plan"] : ["#/conta", "Conta e plano", "acc"]]
+      : [["#/", "Propostas", "list"], ["#/resumo", "Resumo do mês", "rep"], ["#/perfil", "Meu perfil", "me"]];
+    const banner = planBanner(active);
+    if (active === "plan" && !S.data.su) active = "acc";
+    app.innerHTML = `${S.data.notice ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>${esc(S.data.notice)}</span></div>` : ""}${banner}${S.data.su ? `<div class="warnbox" style="margin:0;border-radius:0;justify-content:center"><span>Você está no painel de <b>${esc(S.data.company.name)}</b> como dono do sistema.</span><button type="button" class="pill pill-cream pill-sm" id="suBack">Voltar à lista de empresas</button></div>` : ""}<header class="adm-top wrap"><div class="inner">
         <a class="brand" href="#/">${R.logoHTML("escuro")}</a><span class="tag">${isAdm() ? "Propostas" : "Consultor · " + esc(first(me().name))}</span>
         <nav>${nav.map(([h, t, k]) => `<a class="pill ${active === k ? "on" : "pill-line"}" href="${h}">${t}</a>`).join("")}<a class="pill pill-green" href="#/nova">Nova proposta</a>${themeBtn()}<button class="pill pill-line" type="button" id="logout">Sair</button></nav>
       </div></header><main class="adm-main wrap"><div class="inner">${html}</div></main>`;
@@ -374,7 +547,7 @@
 
   async function start() {
     app.innerHTML = R.loadingHTML("Carregando o painel…");
-    try { await reload(); } catch (e) { if (S.token) app.innerHTML = R.stateHTML("Não foi possível carregar", esc(e.message), '<button class="pill pill-green pill-lg" onclick="location.reload()">Tentar de novo</button>'); return; }
+    try { await reload(); } catch (e) { if (S.token) { app.innerHTML = R.stateHTML("Não foi possível carregar", esc(e.message), '<button type="button" class="pill pill-green pill-lg" id="retryBtn">Tentar de novo</button>'); $("#retryBtn").addEventListener("click", () => location.reload()); } return; }
     if (S.data.role === "super") { R.store.set("empresa", ""); refreshBrandCss(); return superPanel(); } // painel do dono com a identidade neutra
     if (DONO && !S.data.su) return login("dono"); // /dono é só do dono do sistema
     refreshBrandCss();
@@ -391,6 +564,7 @@
     if (h === "nova") return editor(null);
     if (m && m[2]) return editor(m[1]);
     if (m) return detail(m[1]);
+    if (h === "resumo" || /^resumo\/\d{4}-\d{2}$/.test(h)) return report(h.split("/")[1]);
     if (isAdm()) {
       if (h === "servicos") return catalog();
       if (h === "config") return config();
@@ -398,6 +572,7 @@
       if (h === "pagina") return pagina();
       if (h === "equipe") return team();
       if (h === "conta" && !S.data.su) return account();
+      if (h === "plano") return plan();
     } else if (h === "perfil") return profile();
     return list();
   }
@@ -841,7 +1016,7 @@
           ${off ? `<div class="warnbox"><span><b>Proposta fora do ar.</b> ${unpub ? "Ela foi despublicada" : `A validade venceu em ${esc(R.dateLong(p.validUntil))} sem pedido do cliente`}; quem abrir o link vê o aviso de proposta indisponível.${!unpub && !isAdm() ? " Só o administrador pode publicá-la de novo." : ""}</span>${!unpub && !isAdm() ? "" : '<button type="button" class="pill pill-cream pill-sm" id="pubBtn2">Publicar de novo</button>'}</div>` : ""}
           <div class="card share"><div class="ch"><h2>Link da proposta</h2>${p.sentAt ? `<span class="muted small">Enviada em ${esc(R.dateTime(p.sentAt))}</span>` : ""}</div>
             <div class="linkbox"><input class="inp" readonly value="${esc(link)}" id="plink"><button type="button" class="pill pill-cream" data-share="copiar">Copiar</button></div>
-            <div class="row-acts">${S.data.waEnabled ? `<button type="button" class="pill pill-green" id="waProp">Enviar no WhatsApp (automático)</button><a class="pill pill-line" data-share="whatsapp" href="${waLink(p.client.phone, msg)}" target="_blank" rel="noopener">Abrir no meu WhatsApp</a>` : `<a class="pill pill-green" data-share="whatsapp" href="${waLink(p.client.phone, msg)}" target="_blank" rel="noopener">Enviar no WhatsApp</a>`}${S.data.emailEnabled ? `<button type="button" class="pill pill-line" id="mailProp">${p.client.email ? "Enviar por e-mail" : "Enviar por e-mail…"}</button>` : p.client.email ? `<a class="pill pill-line" data-share="e-mail" href="mailto:${esc(p.client.email)}?subject=${encodeURIComponent(M.sp)}&body=${encodeURIComponent(msg)}">Enviar por e-mail</a>` : ""}${!p.sentAt ? '<button type="button" class="pill pill-line" data-share="manual">Marcar como enviada</button>' : ""}</div>
+            <div class="row-acts"><a class="pill pill-green" data-share="whatsapp" href="${waLink(p.client.phone, msg)}" target="_blank" rel="noopener">Enviar no WhatsApp</a>${S.data.emailEnabled ? `<button type="button" class="pill pill-line" id="mailProp">${p.client.email ? "Enviar por e-mail" : "Enviar por e-mail…"}</button>` : p.client.email ? `<a class="pill pill-line" data-share="e-mail" href="mailto:${esc(p.client.email)}?subject=${encodeURIComponent(M.sp)}&body=${encodeURIComponent(msg)}">Enviar por e-mail</a>` : ""}${!p.sentAt ? '<button type="button" class="pill pill-line" data-share="manual">Marcar como enviada</button>' : ""}</div>
             <dl class="kv"><dt>Visualizações</dt><dd>${p.views ? `${p.views} · última em ${esc(R.dateTime(p.lastViewAt))}` : "Ainda não abriu"}</dd><dt>Válida até</dt><dd>${esc(R.dateLong(p.validUntil))}${ps.expired ? ' <span class="st vencida">Vencida</span>' : ""}</dd><dt>País</dt><dd>${esc(countryName(p.country || "BR"))} · ${LANG[p.lang || "pt"]} · ${esc(p.currency || "BRL")}</dd>${seller ? `<dt>Consultor</dt><dd>${esc(seller.name)}${seller.phone ? " · " + esc(seller.phone) : ""}</dd>` : ""}${p.client.contact ? `<dt>Contato</dt><dd>${esc(p.client.contact)}</dd>` : ""}${p.client.phone ? `<dt>WhatsApp</dt><dd>${esc(p.client.phone)}</dd>` : ""}</dl>
           </div>
           <div class="card"><h2>Histórico</h2><ol class="timeline">${(p.history || []).slice().reverse().map((h) => `<li><time>${esc(R.dateTime(h.at))}</time><span>${esc(h.text)}</span></li>`).join("")}</ol></div>
@@ -916,7 +1091,7 @@
       <div class="preview-doc" id="cPrev"${S.showText ? " hidden" : ""}>${docPreview(c.text)}</div>
       <div id="cEdit"${S.showText ? "" : " hidden"}><textarea class="ta mono" id="cText" rows="22">${esc(c.text)}</textarea><div class="row-acts" style="margin-top:10px"><button type="button" class="pill pill-cream" id="saveText">Salvar texto</button><span class="muted small">Linhas que começam com ## viram títulos.${c.seller ? " Mudar o texto apaga a assinatura do intermediador." : ""}</span></div></div>
       <div class="row-acts"><button type="button" class="pill pill-line pill-sm" id="toggleText">${S.showText ? "Ver como documento" : "Editar o texto deste contrato"}</button></div>`;
-    const emailSw = (S.data.emailEnabled ? `<label class="switch"><input type="checkbox" id="aEmail" checked>Enviar o link por e-mail para ${esc(cl.email)}</label>` : "") + (S.data.waEnabled && cl.phone ? `<label class="switch"><input type="checkbox" id="aWa"${st.waClient !== false ? " checked" : ""}>Enviar o link no WhatsApp do cliente (${esc(cl.phone)})</label>` : "");
+    const emailSw = S.data.emailEnabled ? `<label class="switch"><input type="checkbox" id="aEmail" checked>Enviar o link por e-mail para ${esc(cl.email)}</label>` : "";
 
     if (!isAdm()) {
       const m0 = me(), sg = st.agencySignature, canSend = st.sellersUseAgencySignature && sg;
@@ -925,14 +1100,15 @@
         : inter
         ? `<div class="okbox">Você assinou como intermediador e testemunha em ${esc(R.dateTime(inter.at))}.</div>`
         : !m0.doc ? `<div class="warnbox"><span>Cadastre o seu CPF para assinar como intermediador.</span><a class="pill pill-cream pill-sm" href="#/perfil">Ir para Meu perfil</a></div>`
-        : `${m0.hasSignature ? `<label class="switch"><input type="checkbox" id="iSaved" checked>Usar a assinatura salva no meu perfil</label>` : ""}
+        : `${sigModeSeg("iMode", m0.hasSignature ? "salva" : "desenho", [...(m0.hasSignature ? [["salva", "Assinatura salva no perfil"]] : []), ["desenho", "Desenhar agora"], ["dados", "Só nome e CPF"]])}
            <div id="iPadWrap"${m0.hasSignature ? " hidden" : ""}><div id="iPad"></div><div class="row-acts" style="margin-top:8px"><button type="button" class="link-btn" id="iClear">Limpar</button>${m0.hasSignature ? "" : '<label class="switch" style="margin-left:auto"><input type="checkbox" id="iKeep" checked>Salvar no meu perfil</label>'}</div></div>
+           <p class="muted small" id="iHint" style="margin:0" hidden>${DATA_HINT}</p>
            <p class="muted small" style="margin:0">${esc(m0.name)} · CPF ${esc(R.maskDoc(m0.doc))}</p>
            <div class="row-acts"><button type="button" class="pill pill-cream pill-lg" id="iSign">Assinar como intermediador e testemunha</button></div>`;
       return `${head}
         <h2 style="margin-top:8px">1. Sua assinatura · intermediador e testemunha</h2>${interPanel}
         <h2 style="margin-top:8px">2. Liberar para o cliente</h2>
-        ${canSend ? `<p class="muted small" style="margin:0">A assinatura padrão da empresa (${esc(sg.name)}) é aplicada ao liberar, com o registro de que foi você quem liberou.</p>${emailSw}<div class="row-acts"><button type="button" class="pill pill-green pill-lg" id="sendC"${miss.length || (c.seller && !inter) ? " disabled" : ""}>Liberar contrato para o cliente</button></div>` : `<div class="warnbox">A liberação com a assinatura da empresa está restrita ao administrador. Depois de assinar como intermediador, avise o administrador para liberar o contrato.</div>`}
+        ${canSend ? `<p class="muted small" style="margin:0">A assinatura padrão da empresa (${esc(sg.name)}${sg.method === "dados" ? ", por nome e CPF/CNPJ" : ""}) é aplicada ao liberar, com o registro de que foi você quem liberou.</p>${emailSw}<div class="row-acts"><button type="button" class="pill pill-green pill-lg" id="sendC"${miss.length || (c.seller && !inter) ? " disabled" : ""}>Liberar contrato para o cliente</button></div>` : `<div class="warnbox">A liberação com a assinatura da empresa está restrita ao administrador. Depois de assinar como intermediador, avise o administrador para liberar o contrato.</div>`}
       </div>`;
     }
 
@@ -940,15 +1116,17 @@
     return `${head}
       ${c.seller ? (inter ? `<div class="okbox">Intermediador e testemunha: <b>${esc(inter.name)}</b> assinou em ${esc(R.dateTime(inter.at))}.</div>` : `<div class="warnbox"><span>O consultor <b>${esc(c.seller.name)}</b> ainda precisa assinar como intermediador e testemunha, no acesso dele (Painel do consultor › esta proposta). Depois disso você libera o contrato.</span><button type="button" class="pill pill-cream pill-sm" id="dropInter">Seguir sem o consultor neste contrato</button></div>`) : ""}
       <h2 style="margin-top:8px">Assinatura da empresa</h2>
-      ${sig && sig.image && !S.otherSig ? `<div class="sig-auto"><img src="${sig.image}" alt="Assinatura padrão da empresa"><div><b>${esc(sig.name)}</b><small>${esc(R.maskDoc(sig.doc || ""))} · aplicada automaticamente</small><button type="button" class="link-btn" id="sigOther">Usar outra assinatura só neste contrato</button></div></div>` : `<div class="grid2"><label class="fl"><span>Quem assina pela empresa *</span><input class="inp" id="aName" value="${esc((sig && sig.name) || st.agency.representative || "")}"></label><label class="fl"><span>CPF ou CNPJ *</span><input class="inp" id="aDoc" inputmode="numeric" value="${esc(R.maskDoc((sig && sig.doc) || st.agency.representativeDoc || st.agency.cnpj || ""))}"></label></div>
-      <div id="aPadWrap"><div id="aPad"></div><div class="row-acts" style="margin-top:8px"><button type="button" class="link-btn" id="aClear">Limpar</button>${sig && sig.image ? '<button type="button" class="link-btn" id="sigBack">Voltar para a assinatura padrão</button>' : ""}</div></div>
-      <label class="switch"><input type="checkbox" id="aSave">Salvar esta assinatura como padrão</label>`}
+      ${sig && !S.otherSig ? `<div class="sig-auto">${sigView(sig)}<div><b>${esc(sig.name)}</b><small>${esc(R.maskDoc(sig.doc || ""))} · ${sig.image ? "" : "por nome e CPF/CNPJ · "}aplicada automaticamente</small><button type="button" class="link-btn" id="sigOther">Usar outra assinatura só neste contrato</button></div></div>` : `<div class="grid2"><label class="fl"><span>Quem assina pela empresa *</span><input class="inp" id="aName" value="${esc((sig && sig.name) || st.agency.representative || "")}"></label><label class="fl"><span>CPF ou CNPJ *</span><input class="inp" id="aDoc" inputmode="numeric" value="${esc(R.maskDoc((sig && sig.doc) || st.agency.representativeDoc || st.agency.cnpj || ""))}"></label></div>
+      <div class="fl"><span>Forma de assinar</span>${sigModeSeg("aMode", S.aMode || "desenho")}</div>
+      <div id="aPadWrap"${S.aMode === "dados" ? " hidden" : ""}><div id="aPad"></div><div class="row-acts" style="margin-top:8px"><button type="button" class="link-btn" id="aClear">Limpar</button></div></div>
+      <p class="muted small" id="aHint" style="margin:0"${S.aMode === "dados" ? "" : " hidden"}>${DATA_HINT}</p>
+      <div class="row-acts">${sig ? '<button type="button" class="link-btn" id="sigBack">Voltar para a assinatura padrão</button>' : ""}<label class="switch"><input type="checkbox" id="aSave">Salvar esta assinatura como padrão</label></div>`}
       ${emailSw}
       <div class="row-acts"><button type="button" class="pill pill-green pill-lg" id="sendC"${miss.length || needInter ? " disabled" : ""}>Liberar contrato para o cliente</button></div>
     </div>`;
   }
 
-  const sentMsg = (what, r) => { const via = [r.emailed && "e-mail", r.whatsapped && "WhatsApp"].filter(Boolean); return via.length ? `${what} e enviado ao cliente por ${via.join(" e ")}.` : `${what}. Envie o link ao cliente.`; };
+  const sentMsg = (what, r) => (r.emailed ? `${what} e enviado ao cliente por e-mail.` : `${what}. Envie o link ao cliente.`);
 
   function bindDetail() {
     const { proposal: p, contract: c } = S.detail;
@@ -958,15 +1136,6 @@
       try { await post(`proposals/${p.id}/sent`, { via: via === "manual" ? "" : via }); S.detail = await api("proposals/" + p.id); await reload(); renderDetail(); } catch (err) {}
     }));
     $$("[data-copy]").forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy)));
-    const wp = $("#waProp");
-    if (wp) wp.addEventListener("click", async () => {
-      let phone = p.client.phone;
-      if (!phone) { phone = (prompt("WhatsApp do cliente (com DDD):") || "").trim(); if (!phone) return; }
-      else if (!armed(wp, `Enviar para ${phone}?`)) return;
-      busy(wp, true, "Enviando…");
-      try { S.detail = await post(`proposals/${p.id}/whatsapp`, { phone }); await reload(); renderDetail(); R.toast(`Proposta enviada no WhatsApp ${phone}.`); }
-      catch (err) { R.toast(err.message); busy(wp, false); }
-    });
     const mp = $("#mailProp");
     if (mp) mp.addEventListener("click", async () => {
       let to = p.client.email;
@@ -1034,17 +1203,19 @@
     const textDirty = () => S.showText && $("#cText").value !== c.text;
 
     if (!isAdm()) {
-      const iSaved = $("#iSaved"), iWrap = $("#iPadWrap");
+      const iWrap = $("#iPadWrap");
+      const iMode = () => (($$('[name="iMode"]').find((r) => r.checked) || {}).value || "desenho");
       const mount = () => { if (S.padInter || !$("#iPad")) return; S.padInter = R.SignPad($("#iPad")); $("#iClear").addEventListener("click", () => S.padInter.clear()); };
       S.padInter = null;
       if (iWrap && !iWrap.hidden) mount();
-      if (iSaved) iSaved.addEventListener("change", () => { iWrap.hidden = iSaved.checked; if (!iSaved.checked) mount(); });
+      $$('[name="iMode"]').forEach((r) => r.addEventListener("change", () => { const m = iMode(); iWrap.hidden = m !== "desenho"; $("#iHint").hidden = m !== "dados"; if (m === "desenho") mount(); }));
       const iSign = $("#iSign");
       if (iSign) iSign.addEventListener("click", async () => {
         if (textDirty()) { R.toast("Salve o texto editado antes de assinar."); return; }
-        const body = {};
-        if (iSaved && iSaved.checked) body.useSaved = true;
-        else { if (!S.padInter || S.padInter.isEmpty()) { R.toast("Desenhe a sua assinatura."); return; } body.image = S.padInter.toPNG(); body.saveSignature = $("#iKeep") ? $("#iKeep").checked : false; }
+        const body = {}, md = iMode();
+        if (md === "salva") body.useSaved = true;
+        else if (md === "dados") body.method = "dados";
+        else { if (!S.padInter || S.padInter.isEmpty()) { R.toast("Desenhe a sua assinatura."); return; } body.method = "desenho"; body.image = S.padInter.toPNG(); body.saveSignature = $("#iKeep") ? $("#iKeep").checked : false; }
         busy(iSign, true, "Assinando…");
         try { setC(await post(`contracts/${c.id}/intermediary`, body)); if (body.saveSignature) await reload(); renderDetail(); R.toast("Assinatura de intermediador registrada."); } catch (err) { R.toast(err.message); busy(iSign, false); }
       });
@@ -1052,7 +1223,7 @@
       if (send) send.addEventListener("click", async () => {
         if (textDirty()) { R.toast("Salve o texto editado antes de liberar."); return; }
         busy(send, true, "Liberando…");
-        try { const r = await post(`contracts/${c.id}/send`, { emailClient: $("#aEmail") ? $("#aEmail").checked : false, waClient: $("#aWa") ? $("#aWa").checked : false }); S.detail = { ...S.detail, proposal: r.proposal, contract: r.contract, seller: r.seller }; await reload(); renderDetail(); R.toast(sentMsg("Contrato liberado", r)); }
+        try { const r = await post(`contracts/${c.id}/send`, { emailClient: $("#aEmail") ? $("#aEmail").checked : false }); S.detail = { ...S.detail, proposal: r.proposal, contract: r.contract, seller: r.seller }; await reload(); renderDetail(); R.toast(sentMsg("Contrato liberado", r)); }
         catch (err) { R.toast(err.message); busy(send, false); }
       });
       return;
@@ -1061,12 +1232,13 @@
     const drop = $("#dropInter");
     if (drop) drop.addEventListener("click", async () => { if (!armed(drop, "Refaz o texto sem o consultor. Confirmar?")) return; try { setC(await post(`contracts/${c.id}/drop-intermediary`)); renderDetail(); R.toast("Contrato refeito sem o consultor. Já pode assinar e liberar."); } catch (err) { R.toast(err.message); } });
     const sig = S.data.settings.agencySignature;
-    const useSaved = !!(sig && sig.image && !S.otherSig);
+    const useSaved = !!(sig && !S.otherSig);
     const other = $("#sigOther"); if (other) other.addEventListener("click", () => { S.otherSig = true; renderDetail(); });
     const back = $("#sigBack"); if (back) back.addEventListener("click", () => { S.otherSig = false; renderDetail(); });
     if (!useSaved) {
       const docIn = $("#aDoc"); docIn.addEventListener("input", () => (docIn.value = R.maskDoc(docIn.value)));
       S.padAgency = R.SignPad($("#aPad")); $("#aClear").addEventListener("click", () => S.padAgency.clear());
+      $$('[name="aMode"]').forEach((r) => r.addEventListener("change", () => { S.aMode = r.value; $("#aPadWrap").hidden = r.value === "dados"; $("#aHint").hidden = r.value !== "dados"; if (r.value === "desenho") window.dispatchEvent(new Event("resize")); }));
     }
     $("#sendC").addEventListener("click", async (e) => {
       let signature = { useSaved: true };
@@ -1074,13 +1246,14 @@
         const name = $("#aName").value.trim(), doc = R.digits($("#aDoc").value);
         if (name.length < 5) { R.toast("Informe o nome de quem assina pela empresa."); return; }
         if (!R.validDoc(doc)) { R.toast("CPF ou CNPJ de quem assina pela empresa é inválido."); return; }
-        if (!S.padAgency || S.padAgency.isEmpty()) { R.toast("Desenhe a assinatura da empresa."); return; }
-        signature = { name, doc, image: S.padAgency.toPNG() };
+        const method = S.aMode === "dados" ? "dados" : "desenho";
+        if (method === "desenho" && (!S.padAgency || S.padAgency.isEmpty())) { R.toast("Desenhe a assinatura da empresa ou escolha assinar só com nome e CPF/CNPJ."); return; }
+        signature = { name, doc, method, image: method === "desenho" ? S.padAgency.toPNG() : undefined };
       }
       if (textDirty()) { R.toast("Salve o texto editado antes de assinar."); return; }
       busy(e.currentTarget, true, "Assinando…");
       try {
-        const r = await post(`contracts/${c.id}/send`, { signature, saveSignature: !useSaved && $("#aSave") && $("#aSave").checked, emailClient: $("#aEmail") ? $("#aEmail").checked : false, waClient: $("#aWa") ? $("#aWa").checked : false });
+        const r = await post(`contracts/${c.id}/send`, { signature, saveSignature: !useSaved && $("#aSave") && $("#aSave").checked, emailClient: $("#aEmail") ? $("#aEmail").checked : false });
         S.detail = { ...S.detail, proposal: r.proposal, contract: r.contract, seller: r.seller };
         await reload();
         renderDetail();
@@ -1322,8 +1495,8 @@
 
   /* ---------- configurações ---------- */
   /* ---------- dados da empresa (white label) ---------- */
-  // Tudo que identifica a empresa: dados do contrato, contato, logo, cores, fontes, textos, remetente dos e-mails,
-  // assinatura padrão e galeria de trabalhos. Logos e imagens são salvos na hora; o resto no botão Salvar.
+  // Tudo que identifica a empresa: dados do contrato, contato, logo e assinatura padrão.
+  // Logos são salvos na hora; o resto no botão Salvar. Cores, fontes, galeria e textos ficam em Página da proposta.
   const DEF_COLORS = { primary: "#1f6049", accent: "#d4f26a", dark: "#0e2a20", light: "#f4f7f1" };
   const COLOR_LABEL = { primary: ["Cor principal", "Botões e destaques"], accent: ["Cor de destaque", "Títulos em destaque e detalhes"], dark: ["Fundo escuro", "Fundo das páginas e textos sobre fundo claro"], light: ["Fundo claro", "Textos sobre fundo escuro e áreas claras"] };
   // Textos da página da proposta (Dados da empresa): o exemplo de cada campo é o texto padrão do sistema
@@ -1351,12 +1524,11 @@
       return `<div class="logo-slot ${kind}"><div class="logo-prev">${v ? `<img src="/api/public/logo/${kind}${R.imgQ(v)}" alt="">` : `<span class="wordmark">${esc(a.name || "Sua empresa")}</span>`}</div>
         <div><b>${title}</b><small>${hint}</small><div class="row-acts"><label class="pill pill-cream pill-sm">${v ? "Trocar" : "Enviar logo"}<input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" data-logo="${kind}" hidden></label>${v ? `<button type="button" class="link-btn" data-logo-del="${kind}">Remover</button>` : ""}</div></div></div>`;
     };
-    const pf = b.portfolio || [];
     shell("biz", `
-      <div class="pgh"><div><span class="label">White label</span><h1>Dados da empresa</h1><p class="sub">Nome, contato, logo, galeria e assinatura que aparecem nas propostas, nos contratos, nos e-mails e no WhatsApp. Serve para empresas e para freelancers.</p></div></div>
+      <div class="pgh"><div><span class="label">White label</span><h1>Dados da empresa</h1><p class="sub">Nome, contato, logo e assinatura que aparecem nas propostas, nos contratos e nos e-mails. Serve para empresas e para freelancers.</p></div></div>
       <div class="cols">
         <div class="stack">
-          <a class="card accent page-cta" href="#/pagina"><span><b>Página da proposta</b><small>Modelo, cores, fontes e todos os textos que o cliente vê ficam em Página da proposta, com prévia ao lado.</small></span><span class="pill pill-green">Abrir</span></a>
+          <a class="card accent page-cta" href="#/pagina"><span><b>Página da proposta</b><small>Modelo, cores, fontes, galeria de trabalhos e todos os textos que o cliente vê ficam em Página da proposta, com prévia ao lado.</small></span><span class="pill pill-green">Abrir</span></a>
           <div class="card"><h2>Identificação e contrato</h2>
             <div class="grid2">${fld("name", "Nome que o cliente vê *", "Ex.: Estúdio Aurora ou Ana Souza Fotografia")}${fld("legalName", "Razão social ou nome completo *", "Como deve sair no contrato")}${fld("cnpj", "CNPJ ou CPF *", "", "Freelancer sem CNPJ pode usar o CPF.")}${fld("email", "E-mail *")}</div>
             ${fld("address", "Endereço completo *", "Rua, número, bairro e CEP")}
@@ -1365,11 +1537,7 @@
           </div>
           <div class="card"><h2>Contato</h2>
             <div class="grid3"><label class="fl"><span>WhatsApp</span><input class="inp" id="cWa" inputmode="tel" value="${esc(st.whatsapp || "")}" placeholder="5511999990000"></label><label class="fl"><span>Instagram</span><input class="inp" id="cIg" value="${esc(st.instagram || "")}" placeholder="@suaempresa"></label><label class="fl"><span>Site</span><input class="inp" id="cSite" value="${esc(st.site || "")}" placeholder="https://"></label></div>
-            <p class="muted small" style="margin:0">Aparecem no rodapé das propostas e nos botões de WhatsApp. O WhatsApp também recebe os avisos de pedido e assinatura.</p>
-          </div>
-          <div class="card"><div class="ch"><h2>Galeria de trabalhos</h2><label class="pill pill-cream pill-sm">Adicionar imagens<input type="file" accept="image/png,image/jpeg,image/webp" id="pfAdd" multiple hidden></label></div>
-            <p class="muted small" style="margin:0">Aparece nas propostas quando tiver pelo menos uma imagem. As fotos são reduzidas para 1600 px antes de enviar.</p>
-            ${pf.length ? `<ul class="pf-list">${pf.map((x, i) => `<li data-pf="${esc(x.id)}"><img src="/api/public/portfolio/${encodeURIComponent(x.id)}${R.imgQ(x.v)}" alt=""><input class="inp" data-pf-name value="${esc(x.name || "")}" placeholder="Legenda (opcional)"><div class="row-acts"><button type="button" class="link-btn" data-pf-up="${i}"${i ? "" : " disabled"}>↑</button><button type="button" class="link-btn" data-pf-del="${esc(x.id)}">Remover</button></div></li>`).join("")}</ul>` : `<div class="empty"><span>Nenhuma imagem ainda.</span></div>`}
+            <p class="muted small" style="margin:0">Aparecem no rodapé das propostas e nos botões de WhatsApp que o cliente usa para falar com você.</p>
           </div>
         </div>
         <div class="stack">
@@ -1378,12 +1546,13 @@
             ${logoSlot("claro", "Para fundo claro", "Aparece sobre fundos claros (rodapé, contrato, PDF e o topo no tema claro). De preferência PNG escuro com fundo transparente.")}
             <p class="muted small" style="margin:0">Sem logo, o nome da empresa aparece em texto.</p>
           </div>
-          <div class="card"><h2>Remetente dos e-mails</h2>
-            <label class="fl"><span>Nome do remetente</span><input class="inp" id="bFrom" maxlength="80" value="${esc(b.emailFromName || "")}" placeholder="${esc(a.name || "")}"><small>Em branco, usa o nome da empresa. O endereço vem de GMAIL_USER ou EMAIL_FROM no Netlify${S.data.emailSender ? ` (hoje: ${esc(S.data.emailSender)})` : ""}.</small></label>
-          </div>
           <div class="card"><h2>Assinatura padrão da empresa</h2>
-            ${st.agencySignature && !S.cfgSigNew ? `<div class="sig-saved"><img src="${st.agencySignature.image}" alt="Assinatura padrão"></div><p class="muted small" style="margin:0">${esc(st.agencySignature.name)} · ${esc(R.maskDoc(st.agencySignature.doc))}. Entra sozinha em todos os contratos, sem precisar assinar de novo.</p><div class="row-acts"><button type="button" class="pill pill-line pill-sm" id="sigNewCfg">Desenhar outra</button><button type="button" class="pill pill-line pill-sm" id="sigDel">Apagar assinatura</button></div>` :
-            `${st.agencySignature ? '<div class="row-acts"><button type="button" class="link-btn" id="sigCancelCfg">Cancelar</button></div>' : '<p class="muted small" style="margin:0">Desenhe uma vez e ela entra sozinha em todos os contratos.</p>'}<label class="fl"><span>Nome</span><input class="inp" id="sgName" value="${esc(a.representative || "")}"></label><label class="fl"><span>CPF ou CNPJ</span><input class="inp" id="sgDoc" value="${esc(R.maskDoc(a.representativeDoc || a.cnpj || ""))}"></label><div id="cfgPad"></div><div class="row-acts"><button type="button" class="link-btn" id="sgClear">Limpar</button><button type="button" class="pill pill-cream pill-sm" id="sgSave" style="margin-left:auto">Salvar assinatura</button></div>`}
+            ${st.agencySignature && !S.cfgSigNew ? `<div class="sig-saved">${sigView(st.agencySignature)}</div><p class="muted small" style="margin:0">${esc(st.agencySignature.name)} · ${esc(R.maskDoc(st.agencySignature.doc))}${st.agencySignature.image ? "" : " · por nome e CPF/CNPJ"}. Entra sozinha em todos os contratos, sem precisar assinar de novo.</p><div class="row-acts"><button type="button" class="pill pill-line pill-sm" id="sigNewCfg">Trocar assinatura</button><button type="button" class="pill pill-line pill-sm" id="sigDel">Apagar assinatura</button></div>` :
+            `${st.agencySignature ? '<div class="row-acts"><button type="button" class="link-btn" id="sigCancelCfg">Cancelar</button></div>' : '<p class="muted small" style="margin:0">Salve uma vez e ela entra sozinha em todos os contratos.</p>'}<label class="fl"><span>Nome completo</span><input class="inp" id="sgName" value="${esc(a.representative || "")}"></label><label class="fl"><span>CPF ou CNPJ</span><input class="inp" id="sgDoc" value="${esc(R.maskDoc(a.representativeDoc || a.cnpj || ""))}"></label>
+            <div class="fl"><span>Forma de assinar</span>${sigModeSeg("sgMode", S.sgMode || "desenho")}</div>
+            <div id="sgPadWrap"${S.sgMode === "dados" ? " hidden" : ""}><div id="cfgPad"></div><div class="row-acts" style="margin-top:8px"><button type="button" class="link-btn" id="sgClear">Limpar</button></div></div>
+            <p class="muted small" id="sgHint" style="margin:0"${S.sgMode === "dados" ? "" : " hidden"}>${DATA_HINT}</p>
+            <div class="row-acts"><button type="button" class="pill pill-cream pill-sm" id="sgSave" style="margin-left:auto">Salvar assinatura</button></div>`}
           </div>
         </div>
       </div>
@@ -1400,9 +1569,10 @@
   };
   const SECTION_LABEL = [["boas-vindas", "Boas-vindas"], ["principios", "Número em destaque e Como trabalhamos"], ["etapas", "Etapas"], ["galeria", "Galeria de trabalhos"], ["agradecimento", "Agradecimento"]];
   const CORNER_PX = { reto: ["3px", "0px", "0px", "0px"], suave: ["10px", "14px", "18px", "10px"], redondo: ["14px", "24px", "32px", "14px"] };
+  const galleryHTML = (pf) => pf.length ? `<ul class="pf-list">${pf.map((x, i) => `<li data-pf="${esc(x.id)}"><img src="/api/public/portfolio/${encodeURIComponent(x.id)}${R.imgQ(x.v)}" alt=""><input class="inp" data-pf-name value="${esc(x.name || "")}" placeholder="Legenda (opcional)"><div class="row-acts"><button type="button" class="link-btn" data-pf-up="${i}"${i ? "" : " disabled"}>↑</button><button type="button" class="link-btn" data-pf-del="${esc(x.id)}">Remover</button></div></li>`).join("")}</ul>` : `<div class="empty"><span>Nenhuma imagem ainda.</span></div>`;
   const exampleUrl = () => `/p/exemplo?e=${encodeURIComponent(S.data.company.id)}&k=${encodeURIComponent(S.data.exampleKey || "")}`;
   function pagina() {
-    const st = S.data.settings, b = st.brand || {}, LY = S.data.layouts || {};
+    const st = S.data.settings, b = st.brand || {}, LY = S.data.layouts || {}, pf = b.portfolio || [];
     if (!S.pg) S.pg = { layout: b.layout || "neutro", colors: { ...DEF_COLORS, ...(b.colors || {}) }, fontTitle: b.fontTitle || "alexandria", fontText: b.fontText || "alexandria", style: { caps: false, corners: "redondo", hero: "marca", hide: [], ...(b.style || {}) } };
     const G = S.pg, C = G.colors, fonts = S.data.fonts || [];
     const fontSel = (id, cur) => `<select class="sel" id="${id}">${fonts.map(([k, l]) => `<option value="${k}"${k === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
@@ -1430,8 +1600,12 @@
             <label class="check"><input type="checkbox" id="pgCaps"${G.style.caps ? " checked" : ""}><span>Títulos em letras maiúsculas</span></label>
             <div class="fl"><span>Partes que aparecem na proposta</span><div class="sec-list">${SECTION_LABEL.map(([k, l]) => `<label class="check"><input type="checkbox" data-sec="${k}"${G.style.hide.includes(k) ? "" : " checked"}><span>${l}</span></label>`).join("")}</div><small>Serviços, valores e o formulário do pedido sempre aparecem.</small></div>
           </div>
-          <div class="card"><h2>4. Textos</h2>
-            <p class="muted small" style="margin:0">Campo em branco usa o texto de exemplo do modelo (que já tem versão em espanhol e inglês); o que você escrever aparece igual em todos os idiomas. Para destacar uma palavra, coloque entre asteriscos: *assim*. A galeria de fotos fica em <a href="#/empresa">Empresa</a>.</p>
+          <div class="card"><div class="ch"><h2>4. Galeria de trabalhos</h2><label class="pill pill-cream pill-sm">Adicionar imagens<input type="file" accept="image/png,image/jpeg,image/webp" id="pfAdd" multiple hidden></label></div>
+            <p class="muted small" style="margin:0">Aparece nas propostas quando tiver pelo menos uma imagem (e a parte “Galeria de trabalhos” estiver marcada acima). As fotos são reduzidas para 1600 px antes de enviar. A galeria salva na hora; as legendas, ao salvar a página.</p>
+            <div id="pfBox">${galleryHTML(pf)}</div>
+          </div>
+          <div class="card"><h2>5. Textos</h2>
+            <p class="muted small" style="margin:0">Campo em branco usa o texto de exemplo do modelo (que já tem versão em espanhol e inglês); o que você escrever aparece igual em todos os idiomas. Para destacar uma palavra, coloque entre asteriscos: *assim*.</p>
             ${txGroup("Topo da página", tx("hero_label") + tx("hero_blur") + tx("hero_sharp"), true)}
             ${txGroup("Boas-vindas", tx("welcome") + `<label class="fl"><span>Texto de apresentação</span><textarea class="ta" id="cIntro" rows="4">${esc(st.intro)}</textarea></label>
             <label class="fl"><span>Quem somos</span><textarea class="ta" id="bAbout" rows="4">${esc(b.about || "")}</textarea></label>` + tx("team") + `
@@ -1507,6 +1681,31 @@
       livePreview();
       R.toast(`Modelo ${LAYOUT_INFO[k][0]} aplicado. Ajuste o que quiser e salve.`);
     }));
+    // galeria de trabalhos: salva na hora e redesenha só o quadro da galeria (os textos ainda não salvos continuam na tela)
+    const pfList = () => $$("[data-pf]").map((li) => ({ id: li.dataset.pf, name: li.querySelector("[data-pf-name]").value.trim() }));
+    const rerender = () => { const names = Object.fromEntries(pfList().map((x) => [x.id, x.name])); $("#pfBox").innerHTML = galleryHTML((S.data.settings.brand.portfolio || []).map((x) => (x.id in names ? { ...x, name: names[x.id] } : x))); bindGallery(); refreshFrame(); };
+    const refreshFrame = () => { const f = $("#pgFrame"); if (f) f.src = exampleUrl() + "&t=" + Date.now(); };
+    $("#pfAdd").addEventListener("change", async (e) => {
+      const files = [...(e.target.files || [])]; if (!files.length) return;
+      R.toast(`Enviando ${files.length} ${files.length > 1 ? "imagens" : "imagem"}…`);
+      for (const f of files) {
+        try { await post("brand-image", { slot: "portfolio", name: f.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "), image: await shrinkImage(f, { max: 1600, type: "image/jpeg", quality: 0.84 }) }); }
+        catch (err) { R.toast(`${f.name}: ${err.message}`); }
+      }
+      e.target.value = "";
+      await reload(); rerender(); R.toast("Galeria atualizada.");
+    });
+    const bindGallery = () => {
+      $$("[data-pf-up]").forEach((b) => b.addEventListener("click", async () => {
+        const L = pfList(), i = Number(b.dataset.pfUp); [L[i - 1], L[i]] = [L[i], L[i - 1]];
+        try { await put("brand-image", { portfolio: L }); await reload(); rerender(); } catch (err) { R.toast(err.message); }
+      }));
+      $$("[data-pf-del]").forEach((b) => b.addEventListener("click", async () => {
+        if (!armed(b, "Remover?")) return;
+        try { await api("brand-image/" + encodeURIComponent(b.dataset.pfDel), { method: "DELETE" }); await reload(); rerender(); } catch (err) { R.toast(err.message); }
+      }));
+    };
+    bindGallery();
     const fr = $("#pgFrame");
     fr.addEventListener("load", () => { livePreview(); setTimeout(livePreview, 400); });
     $("#pgReload").addEventListener("click", () => { fr.src = exampleUrl() + "&t=" + Date.now(); });
@@ -1519,6 +1718,7 @@
       busy(e.currentTarget, true, "Salvando…");
       try {
         await put("settings", { brand, intro: $("#cIntro").value.trim(), nextSteps: textToSteps($("#cNext").value), pageTexts: Object.fromEntries($$("[data-tx]").map((i) => [i.dataset.tx, i.value.trim()])) });
+        if ($$("[data-pf]").length) await put("brand-image", { portfolio: pfList() });
         await reload(); S.pg = null; refreshBrandCss(); pagina(); R.toast("Página da proposta salva.");
       } catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
     });
@@ -1564,35 +1764,17 @@
       if (!armed(b, "Remover?")) return;
       try { await api("brand-image/logo-" + b.dataset.logoDel, { method: "DELETE" }); await reload(); rerender(); } catch (err) { R.toast(err.message); }
     }));
-    // galeria
-    $("#pfAdd").addEventListener("change", async (e) => {
-      const files = [...(e.target.files || [])]; if (!files.length) return;
-      R.toast(`Enviando ${files.length} ${files.length > 1 ? "imagens" : "imagem"}…`);
-      for (const f of files) {
-        try { await post("brand-image", { slot: "portfolio", name: f.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " "), image: await shrinkImage(f, { max: 1600, type: "image/jpeg", quality: 0.84 }) }); }
-        catch (err) { R.toast(`${f.name}: ${err.message}`); }
-      }
-      await reload(); rerender(); R.toast("Galeria atualizada.");
-    });
-    const pfList = () => $$("[data-pf]").map((li) => ({ id: li.dataset.pf, name: li.querySelector("[data-pf-name]").value.trim() }));
-    $$("[data-pf-up]").forEach((b) => b.addEventListener("click", async () => {
-      const L = pfList(), i = Number(b.dataset.pfUp); [L[i - 1], L[i]] = [L[i], L[i - 1]];
-      try { await put("brand-image", { portfolio: L }); await reload(); rerender(); } catch (err) { R.toast(err.message); }
-    }));
-    $$("[data-pf-del]").forEach((b) => b.addEventListener("click", async () => {
-      if (!armed(b, "Remover?")) return;
-      try { await api("brand-image/" + encodeURIComponent(b.dataset.pfDel), { method: "DELETE" }); await reload(); rerender(); } catch (err) { R.toast(err.message); }
-    }));
     // assinatura padrão
     if ($("#cfgPad")) {
       S.padCfg = R.SignPad($("#cfgPad"));
       $("#sgClear").addEventListener("click", () => S.padCfg.clear());
       const d = $("#sgDoc"); d.addEventListener("input", () => (d.value = R.maskDoc(d.value)));
+      $$('[name="sgMode"]').forEach((r) => r.addEventListener("change", () => { S.sgMode = r.value; $("#sgPadWrap").hidden = r.value === "dados"; $("#sgHint").hidden = r.value !== "dados"; if (r.value === "desenho") window.dispatchEvent(new Event("resize")); }));
       $("#sgSave").addEventListener("click", async () => {
-        const name = $("#sgName").value.trim(), doc = R.digits($("#sgDoc").value);
-        if (name.length < 5 || !R.validDoc(doc)) { R.toast("Informe nome completo e CPF ou CNPJ válido."); return; }
-        if (S.padCfg.isEmpty()) { R.toast("Desenhe a assinatura."); return; }
-        try { await put("settings", { agencySignature: { name, doc, image: S.padCfg.toPNG() } }); await reload(); S.cfgSigNew = false; rerender(); R.toast("Assinatura salva."); } catch (err) { R.toast(err.message); }
+        const name = $("#sgName").value.trim(), doc = R.digits($("#sgDoc").value), method = S.sgMode === "dados" ? "dados" : "desenho";
+        if (name.length < 5 || !name.includes(" ") || !R.validDoc(doc)) { R.toast("Informe nome completo e CPF ou CNPJ válido."); return; }
+        if (method === "desenho" && S.padCfg.isEmpty()) { R.toast("Desenhe a assinatura ou escolha assinar só com nome e CPF/CNPJ."); return; }
+        try { await put("settings", { agencySignature: { name, doc, method, image: method === "desenho" ? S.padCfg.toPNG() : undefined } }); await reload(); S.cfgSigNew = false; rerender(); R.toast("Assinatura salva."); } catch (err) { R.toast(err.message); }
       });
     }
     const sn = $("#sigNewCfg"); if (sn) sn.addEventListener("click", () => { S.cfgSigNew = true; rerender(); });
@@ -1604,13 +1786,9 @@
       const agency = {}; $$("[data-ag]").forEach((i) => (agency[i.dataset.ag] = i.dataset.ag.match(/cnpj|Doc/) ? R.digits(i.value) : i.value.trim()));
       if (!agency.name) { R.toast("Informe o nome que o cliente vê."); $('[data-ag="name"]').focus(); return; }
       if (agency.cnpj && !R.validDoc(agency.cnpj)) { R.toast("CNPJ ou CPF inválido."); $('[data-ag="cnpj"]').focus(); return; }
-      const brand = { emailFromName: $("#bFrom").value.trim() };
-      // nomes da galeria editados na lista
-      const L = $$("[data-pf]").length ? pfList() : null;
       busy(e.currentTarget, true, "Salvando…");
       try {
-        await put("settings", { agency, brand, whatsapp: $("#cWa").value, instagram: $("#cIg").value, site: $("#cSite").value.trim() });
-        if (L) await put("brand-image", { portfolio: L });
+        await put("settings", { agency, whatsapp: $("#cWa").value, instagram: $("#cIg").value, site: $("#cSite").value.trim() });
         await reload(); refreshBrandCss(); empresa(); R.toast("Dados da empresa salvos.");
       } catch (err) { R.toast(err.message); busy(e.currentTarget, false); }
     });
@@ -1622,11 +1800,11 @@
     const own = S.ctr.own;
     const fld = (k, l, ph = "", hint = "") => `<label class="fl"><span>${l}</span><input class="inp" data-ag="${k}" value="${esc(/cnpj|Doc/.test(k) ? R.maskDoc(a[k] || "") : a[k] || "")}" placeholder="${esc(ph)}"${/cnpj|Doc/.test(k) ? ' inputmode="numeric"' : ""}>${hint ? `<small>${hint}</small>` : ""}</label>`;
     shell("cfg", `
-      <div class="pgh"><div><span class="label">Ajustes</span><h1>Configurações</h1><p class="sub">Modelo de contrato, consultores, link aberto, WhatsApp e e-mails automáticos.</p></div></div>
+      <div class="pgh"><div><span class="label">Ajustes</span><h1>Configurações</h1><p class="sub">Modelo de contrato, consultores, validade das propostas, link aberto e modelo de teste.</p></div></div>
       <div class="cols">
         <div class="stack">
           <div class="card"><h2>Dados da empresa</h2>
-            <p class="muted small" style="margin:0">Nome, CNPJ ou CPF, endereço, logo, cores, fontes, textos da proposta, remetente dos e-mails e assinatura padrão ficam em Dados da empresa.</p>
+            <p class="muted small" style="margin:0">Nome, CNPJ ou CPF, endereço, contato, logo e assinatura padrão ficam em Dados da empresa. Cores, fontes, galeria e textos ficam em Página da proposta.</p>
             <a class="pill pill-cream pill-sm" href="#/empresa" style="justify-self:start">Abrir Dados da empresa</a>
           </div>
           <div class="card" id="ctrCard"><div class="ch"><h2>Modelo de contrato</h2><div class="row-acts"><button type="button" class="pill pill-line pill-sm" id="ctrPrev">${S.ctrPrev ? "Voltar ao texto" : "Ver contrato completo"}</button></div></div>
@@ -1659,20 +1837,6 @@
             <p class="muted small" style="margin:0">Cria a pasta “Modelo de teste” com um consultor fictício e cinco propostas, uma em cada etapa: aberta, pedido recebido, contrato em rascunho, Paraguai aguardando assinatura e contrato assinado. Serve para conferir o sistema de ponta a ponta. Criar de novo substitui o modelo anterior.</p>
             <div class="row-acts"><button type="button" class="pill pill-cream" id="demoMake">Criar modelo de teste</button><button type="button" class="pill pill-line" id="demoDel">Remover modelo de teste</button></div>
             <div id="demoOut"></div>
-          </div>
-          <div class="card"><h2>WhatsApp automático</h2>
-            ${S.data.waEnabled ? `<div class="okbox">Ativo. As mensagens saem pelo número conectado à Z-API.</div>` : `<p class="small" style="margin:0">Desativado. Os botões de WhatsApp abrem o seu WhatsApp com a mensagem pronta, e você envia.</p>`}
-            <label class="switch"><input type="checkbox" id="cWaClient"${st.waClient !== false ? " checked" : ""}>Avisar o cliente: pedido recebido, contrato para assinar e cópia assinada</label>
-            <label class="switch"><input type="checkbox" id="cWaAgency"${st.waAgency !== false ? " checked" : ""}>Avisar a empresa (WhatsApp de Dados da empresa) e o consultor: novo pedido, recusa, assinatura do intermediador e contrato assinado</label>
-            ${S.data.waEnabled ? `<div class="linkbox"><input class="inp" id="waTestTo" inputmode="tel" placeholder="WhatsApp para o teste" value="${esc(st.whatsapp || "")}"><button type="button" class="pill pill-cream" id="waTest">Enviar mensagem de teste</button></div>` : `<p class="small" style="margin:0"><b>Para ativar (Z-API, serviço pago à parte):</b></p>
-            <ol class="small steps-list"><li>Crie uma conta em z-api.io e uma instância.</li><li>Leia o QR Code da instância com o WhatsApp do número que vai enviar as mensagens (de preferência um WhatsApp Business só da empresa).</li><li>Copie o ID da instância, o Token da instância e o Client-Token (em Segurança, no painel da Z-API).</li><li>No Netlify, em Environment variables, crie ZAPI_INSTANCE, ZAPI_TOKEN e ZAPI_CLIENT_TOKEN com esses valores e faça um novo deploy.</li></ol>`}
-          </div>
-          <div class="card"><h2>E-mails automáticos</h2>
-            ${S.data.emailEnabled ? `<div class="okbox">Ativos${S.data.emailSender ? `, enviados por ${esc(S.data.emailSender)}` : ""}. O cliente recebe a confirmação do pedido, o link do contrato e a cópia assinada em PDF. Você e o consultor recebem os avisos de pedido e de assinatura.</div>
-            <div class="linkbox"><input class="inp" id="mailTestTo" type="email" placeholder="E-mail para o teste" value="${esc(S.data.settings.agency.email || "")}"><button type="button" class="pill pill-cream" id="mailTest">Enviar e-mail de teste</button></div>` : `<p class="small" style="margin:0">Desativados. Tudo funciona por link e WhatsApp, e o cliente baixa a cópia em PDF ao assinar.</p>
-            <p class="small" style="margin:0"><b>Para enviar pelo Gmail:</b></p>
-            <ol class="small steps-list"><li>Na conta Google, ative a verificação em duas etapas.</li><li>Em myaccount.google.com/apppasswords, crie uma senha de app com o nome “Propostas”. O Google mostra 16 letras.</li><li>No Netlify, em Project configuration › Environment variables, crie GMAIL_USER com o e-mail e GMAIL_APP_PASSWORD com as 16 letras.</li><li>Faça um novo deploy (Deploys › Trigger deploy). Este quadro passa a mostrar “Ativos”.</li></ol>
-            <p class="muted small" style="margin:0">A senha normal da conta não funciona para envio automático e não deve ser colocada no sistema.</p>`}
           </div>
         </div>
       </div>
@@ -1720,21 +1884,8 @@
       if (!armed(e.currentTarget, "Remover tudo do modelo?")) return;
       try { await post("demo", { remove: true }); await reload(); $("#demoOut").innerHTML = ""; R.toast("Modelo de teste removido."); } catch (err) { R.toast(err.message); }
     });
-    const wt = $("#waTest");
-    if (wt) wt.addEventListener("click", async () => {
-      busy(wt, true, "Enviando…");
-      try { await post("wa-test", { phone: $("#waTestTo").value.trim() }); R.toast("Mensagem de teste enviada. Confira o WhatsApp."); } catch (err) { R.toast(err.message); }
-      busy(wt, false);
-    });
-    const mt = $("#mailTest");
-    if (mt) mt.addEventListener("click", async () => {
-      busy(mt, true, "Enviando…");
-      try { const r = await post("email-test", { to: $("#mailTestTo").value.trim() }); R.toast(`E-mail de teste enviado para ${r.to}. Confira a caixa de entrada e o spam.`); }
-      catch (err) { R.toast(err.message); }
-      busy(mt, false);
-    });
     $("#cfgSave").addEventListener("click", async (e) => {
-      const body = { validityDays: $("#cVal").value, openLink: $("#cOpen").checked, sellersUseAgencySignature: $("#cSellers").checked, waClient: $("#cWaClient").checked, waAgency: $("#cWaAgency").checked };
+      const body = { validityDays: $("#cVal").value, openLink: $("#cOpen").checked, sellersUseAgencySignature: $("#cSellers").checked };
       keepTpl();
       if (S.ctr.own && !S.ctr.text.trim()) { R.toast("A caixa do contrato está vazia. Envie um arquivo, cole o texto ou volte ao modelo do sistema."); return; }
       body.contractText = S.ctr.own && S.ctr.text.trim() !== S.data.defaultTemplate.trim() ? S.ctr.text : null;
