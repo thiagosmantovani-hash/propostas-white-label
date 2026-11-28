@@ -4,14 +4,30 @@
 // Sessão assinada com HMAC (30 dias) contendo o papel, a empresa (cid), o usuário (uid) e uma marca da senha (pv),
 // para que trocar a senha encerre os acessos abertos com a senha antiga.
 import crypto from "node:crypto";
-import { env } from "./store.mjs";
+import { env, rootDb } from "./store.mjs";
 
 const DAYS = 30;
 
-function secret() {
+// Chave das sessões: ADMIN_PASSWORD + SESSION_SECRET. Sem SESSION_SECRET no Netlify, usa uma chave aleatória
+// criada uma vez e guardada no armazenamento (nunca um texto fixo no código), para ninguém conseguir forjar
+// um acesso só sabendo a senha do dono. Trocar ADMIN_PASSWORD encerra todos os acessos abertos.
+let randomKey = null;
+export async function initAuth() {
+  if (env("SESSION_SECRET") || randomKey) return;
+  const root = await rootDb();
+  let k = await root.get("system-key");
+  if (!k || typeof k.key !== "string" || k.key.length < 40) { k = { key: crypto.randomBytes(32).toString("base64url"), at: new Date().toISOString() }; await root.set("system-key", k); }
+  randomKey = k.key;
+}
+export function secretMaterial() {
   const pw = env("ADMIN_PASSWORD");
-  if (!pw) return null;
-  return crypto.createHash("sha256").update(pw + "|" + (env("SESSION_SECRET") || "propostas")).digest();
+  const extra = env("SESSION_SECRET") || randomKey;
+  if (!pw || !extra) return null;
+  return pw + "|" + extra;
+}
+function secret() {
+  const m = secretMaterial();
+  return m ? crypto.createHash("sha256").update(m).digest() : null;
 }
 
 export const adminConfigured = () => !!env("ADMIN_PASSWORD");

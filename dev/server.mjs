@@ -11,6 +11,10 @@ globalThis.Netlify = { env: { get: (k) => process.env[k] } };
 const { default: api } = await import("../netlify/functions/api.mjs");
 
 const PUB = path.join(root, "..", "public");
+// os mesmos cabeçalhos de segurança do netlify.toml (bloco for = "/*"), para testar no computador como no ar
+const toml = await fs.readFile(path.join(root, "..", "netlify.toml"), "utf8");
+const block = (toml.match(/for = "\/\*"\s*\[headers\.values\]([\s\S]*?)(?:\n\s*\n|\[\[)/) || [])[1] || "";
+const SEC = Object.fromEntries([...block.matchAll(/^\s*([\w-]+)\s*=\s*"(.*)"\s*$/gm)].map((m) => [m[1], m[2]]).filter(([k]) => k !== "Strict-Transport-Security"));
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".json": "application/json", ".ico": "image/x-icon" };
 const REWRITES = [[/^\/$/, "/inicio.html"], [/^\/p\/.+/, "/proposta.html"], [/^\/c\/.+/, "/contrato.html"], [/^\/(admin|entrar|dono)\/?$/, "/admin.html"]];
 
@@ -22,7 +26,7 @@ http.createServer(async (req, res) => {
       for await (const c of req) chunks.push(c);
       const body = chunks.length ? Buffer.concat(chunks) : undefined;
       const r = await api(new Request(url, { method: req.method, headers: req.headers, body: ["GET", "HEAD"].includes(req.method) ? undefined : body }), { ip: req.socket.remoteAddress, params: {} });
-      res.writeHead(r.status, Object.fromEntries(r.headers));
+      res.writeHead(r.status, { ...SEC, ...Object.fromEntries(r.headers) });
       res.end(Buffer.from(await r.arrayBuffer()));
       return;
     }
@@ -32,7 +36,7 @@ http.createServer(async (req, res) => {
     const file = path.join(PUB, path.normalize(p));
     if (!file.startsWith(PUB)) throw new Error("fora");
     const data = await fs.readFile(file);
-    res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream" });
+    res.writeHead(200, { ...SEC, "content-type": TYPES[path.extname(file)] || "application/octet-stream" });
     res.end(data);
   } catch (e) {
     res.writeHead(404, { "content-type": "text/plain" });

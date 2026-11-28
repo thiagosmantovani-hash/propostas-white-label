@@ -5,7 +5,7 @@
   const t = (k, v) => R.t(k, v);
   const app = $("#app");
   const id = location.pathname.split("/").filter(Boolean)[1] || "";
-  let C = null, pad = null, sending = false, emailed = false;
+  let C = null, pad = null, sending = false, emailed = false, mode = "desenho";
   const br = () => !C.country || C.country === "BR";
 
   init();
@@ -50,7 +50,7 @@
   }
 
   const sigHTML = (role, s, fallback, mine) => `<div><span class="label">${role}</span>
-    <div class="img">${s && s.image ? `<img src="${s.image}" alt="${esc(t("sig_of", { n: s.name }))}">` : `<em>${mine ? t("w_yours") : t("w_sig")}</em>`}</div>
+    <div class="img">${s && s.image ? `<img src="${s.image}" alt="${esc(t("sig_of", { n: s.name }))}">` : s && s.at ? `<span class="typed"><small>${t("typed_by")}</small>${esc(s.name)}</span>` : `<em>${mine ? t("w_yours") : t("w_sig")}</em>`}</div>
     <b>${esc((s && s.name) || fallback || "")}</b>${s && s.doc ? `<small>${esc(s.doc)}</small>` : ""}${s && s.at ? `<small>${esc(t("signed_at", { d: R.dateTime(s.at) }))}</small>` : ""}</div>`;
 
   function sigsHTML() {
@@ -132,7 +132,11 @@
         <div class="field full"><label for="s-name">${t("f_signer")}</label><input id="s-name" name="name" autocomplete="name" value="${esc(C.client.representative || C.client.name || "")}"><span class="err" id="e-name"></span></div>
         <div class="field"><label for="s-doc">${br() ? t("f_sdoc") : t("f_sdoc_x")}</label><input id="s-doc" name="doc"${br() ? ' inputmode="numeric"' : ""} value="${esc(docDefault)}"><span class="hint">${br() ? t("sdoc_hint") : t("sdoc_hint_x")}</span><span class="err" id="e-doc"></span></div>
         <div class="field"><label for="s-email">${t("f_copy")}</label><input id="s-email" name="email" type="email" autocomplete="email" value="${esc(C.client.email || "")}"><span class="err" id="e-email"></span></div>
-        <div class="pad-wrap"><div class="bar"><span>${t("your_sig")}</span><button type="button" class="link-btn" id="padClear">${t("clear")}</button></div><div id="pad"></div><span class="err" id="e-pad" style="font-size:12px;color:var(--accent-soft);min-height:1.2em"></span></div>
+        <div class="pad-wrap"><div class="bar"><span>${t("how_sign")}</span></div>
+          <div class="sig-mode" role="radiogroup"><label><input type="radio" name="smode" value="desenho"${mode === "desenho" ? " checked" : ""}><span>${t("m_draw")}</span></label><label><input type="radio" name="smode" value="dados"${mode === "dados" ? " checked" : ""}><span>${br() ? t("m_data") : t("m_data_x")}</span></label></div>
+          <div id="padBox"${mode === "dados" ? " hidden" : ""}><div class="bar"><span>${t("your_sig")}</span><button type="button" class="link-btn" id="padClear">${t("clear")}</button></div><div id="pad"></div></div>
+          <p class="fine" id="dataHint"${mode === "dados" ? "" : " hidden"}>${t("data_hint")}</p>
+          <span class="err" id="e-pad" style="font-size:12px;color:var(--accent-soft);min-height:1.2em"></span></div>
         <label class="check"><input type="checkbox" name="accept"><span>${t("s_accept")}</span></label>
         <p class="form-msg" id="signMsg" role="alert"></p>
         <div class="form-actions"><button type="submit" class="pill pill-green pill-lg" id="signBtn">${t("sign")}</button><a class="link-btn" href="${R.wa(wa, t("wa_c_doubt", { n: C.number }))}" target="_blank" rel="noopener">${t("s_doubt")}</a></div>
@@ -140,6 +144,11 @@
     pad = R.SignPad($("#pad"), () => ($("#e-pad").textContent = ""), t("pad_ph"));
     $("#padClear").addEventListener("click", () => pad.clear());
     const f = $("#signForm");
+    f.querySelectorAll('[name="smode"]').forEach((r) => r.addEventListener("change", () => {
+      mode = r.value === "dados" ? "dados" : "desenho";
+      $("#padBox").hidden = mode === "dados"; $("#dataHint").hidden = mode !== "dados"; $("#e-pad").textContent = "";
+      if (mode === "desenho") window.dispatchEvent(new Event("resize"));
+    }));
     f.addEventListener("input", (e) => {
       if (e.target.name === "doc" && br()) e.target.value = R.maskDoc(e.target.value);
       const er = $("#e-" + e.target.name); if (er) er.textContent = "";
@@ -158,13 +167,13 @@
     if (name.length < 5 || !name.includes(" ")) err("name", t("e_full"));
     if (br() ? !R.validDoc(doc) : doc.length < 4) err("doc", br() ? t("e_doc") : t("e_doc_x"));
     if (!R.validEmail(email)) err("email", t("e_email"));
-    if (pad.isEmpty()) err("pad", t("e_pad"));
+    if (mode === "desenho" && pad.isEmpty()) err("pad", t("e_pad"));
     if (bad) { const el = bad === "pad" ? $("#pad") : f[bad]; el.scrollIntoView({ block: "center" }); if (el.focus) el.focus(); return; }
     if (!f.accept.checked) { msg.textContent = t("m_accept_c"); return; }
     sending = true;
     const btn = $("#signBtn"); btn.classList.add("is-busy"); btn.textContent = t("signing");
     try {
-      const r = await R.api(`public/contract/${encodeURIComponent(id)}/sign`, { method: "POST", body: JSON.stringify({ name, doc: br() ? R.digits(doc) : doc, email, image: pad.toPNG(), accept: true, hash: C.hash }) });
+      const r = await R.api(`public/contract/${encodeURIComponent(id)}/sign`, { method: "POST", body: JSON.stringify({ name, doc: br() ? R.digits(doc) : doc, email, method: mode, image: mode === "desenho" ? pad.toPNG() : undefined, accept: true, hash: C.hash }) });
       emailed = !!r.emailed;
       C = r; C.client.email = email;
       const sg = sigsHTML(), box = $("#sigs"); box.className = sg.cls; box.innerHTML = sg.h;

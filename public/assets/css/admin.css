@@ -477,3 +477,26 @@ body.adm :focus-visible{outline-color:var(--forest-3)}
 .login .field input,.login .field select{border:1px solid var(--line-dark);border-radius:12px;padding:11px 14px;font-size:15.5px;background:var(--fx-surface)}
 :root[data-theme="claro"] body.adm .login .field input{border-color:#cfdbd1}
 .login .field input:focus{border-color:var(--forest-3);box-shadow:0 0 0 3px var(--fx-soft)}
+
+/* assinatura só com nome e CPF/CNPJ (sem desenho) */
+.sig-typed{display:grid;gap:2px;font-weight:600;font-size:18px;line-height:1.2;color:var(--ink);padding:6px 4px}
+.sig-typed small{font-weight:400;font-size:11px;letter-spacing:.02em;color:color-mix(in srgb,var(--ink) 60%,transparent)}
+[hidden]{display:none!important}
+
+/* plano e pagamento */
+.plan-card .plan-price{margin:0;display:flex;align-items:baseline;gap:4px}
+.plan-card .plan-price b{font-size:clamp(32px,4vw,44px);font-weight:600;letter-spacing:-.02em}
+.plan-card .plan-price span{font-size:15px;opacity:.7}
+.plan-card.best{outline:2px solid var(--accent-soft,var(--accent));outline-offset:-2px}
+
+/* resumo do mês */
+.tile small.up{color:var(--accent-soft,var(--accent))}
+.tile small.down{color:#f0a58f}
+.rep-head .acts{flex-wrap:wrap}
+@media print{
+  .adm-top,.no-print,.warnbox,.okbox,.savebar,.toast{display:none!important}
+  body,.adm-main{background:#fff!important;color:#111!important}
+  .card,.tile{break-inside:avoid;background:#fff!important;color:#111!important;border:1px solid #ccc!important;box-shadow:none!important}
+  .tbl th,.tbl td,.kv dt,.kv dd,.muted,.svcs,.tile span,.tile small{color:#333!important}
+  .tbl tr{cursor:default}
+}
